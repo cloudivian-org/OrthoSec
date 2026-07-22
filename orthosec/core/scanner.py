@@ -68,15 +68,16 @@ class ScanResult:
 
 
 class Scanner:
-    def __init__(self, detectors=None):
+    def __init__(self, detectors=None, exclude: list[str] | None = None):
         if detectors is None:
             from orthosec.detectors import load_builtin_detectors
             detectors = load_builtin_detectors()
         self.detectors = detectors
+        self.exclude = exclude or []
 
     def scan(self, root: str | os.PathLike) -> ScanResult:
         root_path = Path(root).resolve()
-        files = list(_walk(root_path))
+        files = list(_walk(root_path, self.exclude))
         ctx = ScanContext(root=root_path, files=files)
 
         findings: list[Finding] = []
@@ -101,7 +102,8 @@ class Scanner:
         )
 
 
-def _walk(root: Path) -> Iterable[Path]:
+def _walk(root: Path, exclude: list[str] | None = None) -> Iterable[Path]:
+    exclude = exclude or []
     if root.is_file():
         yield root
         return
@@ -111,9 +113,18 @@ def _walk(root: Path) -> Iterable[Path]:
             p = Path(dirpath) / fn
             if p.suffix.lower() not in _TEXT_EXT and p.name != ".env":
                 continue
+            rel = str(p.relative_to(root)) if p.is_relative_to(root) else str(p)
+            if any(_excluded(rel, pat) for pat in exclude):
+                continue
             try:
                 if p.stat().st_size > _MAX_BYTES:
                     continue
             except OSError:
                 continue
             yield p
+
+
+def _excluded(rel: str, pattern: str) -> bool:
+    pattern = pattern.rstrip("/")
+    return (fnmatch.fnmatch(rel, pattern) or rel.startswith(pattern + "/")
+            or f"/{pattern}/" in f"/{rel}" or pattern in rel.split("/"))

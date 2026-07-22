@@ -79,6 +79,32 @@ class TestProfiles(unittest.TestCase):
         self.assertNotIn("evidence:", ciso)
 
 
+class TestConfigAndReports(unittest.TestCase):
+    def test_mini_yaml_and_exclude(self):
+        import tempfile, os
+        from orthosec.config import load_project_config
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, ".orthosec.yml"), "w") as fh:
+                fh.write("profile: ciso\nfail_on: critical\nexclude:\n  - vendor/\n  - '*.min.js'\n")
+            cfg = load_project_config(d)
+            self.assertEqual(cfg["profile"], "ciso")
+            self.assertEqual(cfg["exclude"], ["vendor/", "*.min.js"])
+
+    def test_exclude_drops_files(self):
+        result = Scanner(exclude=["agent.py"]).scan(EXAMPLE)
+        self.assertEqual(result.findings, [])  # only file excluded → clean
+
+    def test_html_report_is_self_contained(self):
+        from orthosec.report.html import render_html
+        from orthosec.intel.business_risk import annotate_findings
+        result = Scanner().scan(EXAMPLE)
+        annotate_findings(result.findings)
+        h = render_html(result, profile="ciso")
+        self.assertTrue(h.startswith("<!doctype html>"))
+        self.assertNotIn("/*__DATA__*/null", h)      # data injected
+        self.assertNotIn("https://", h.replace("w3.org", ""))  # no external requests
+
+
 def _finding(sev: Severity) -> Finding:
     return Finding(
         detector="t", rule_id="T-1", title="t", severity=sev,

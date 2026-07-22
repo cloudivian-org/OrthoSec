@@ -1,0 +1,16 @@
+# OrthoSec project config — drop `.orthosec.yml` at your AI product's root.
+# This is the integration contract: it declares how OrthoSec scans your project.
+# Command-line flags always override these values.
+
+# Default audience view when none is passed: engineer | appsec | ciso | product
+profile: appsec
+
+# Fail CI on a finding at or above this severity: critical | high | medium | low | none
+fail_on: high
+
+# Paths to skip (dir names, path prefixes, or globs). Vendored code, fixtures, etc.
+exclude:
+  - tests/
+  - fixtures/
+  - vendor/
+  - "*.min.js"

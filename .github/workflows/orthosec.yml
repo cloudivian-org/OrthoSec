@@ -1,0 +1,32 @@
+# Drop this into any AI product repo to gate PRs on AI-security risk.
+# Findings appear inline on the PR via GitHub code scanning (SARIF).
+name: OrthoSec
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF to code scanning
+
+jobs:
+  ai-security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: OrthoSec AI Security Scan
+        uses: cloudivian-org/OrthoSec@main
+        with:
+          path: "."
+          profile: "appsec"
+          fail-on: "high"
+          sarif-file: "orthosec.sarif"
+
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "orthosec.sarif"

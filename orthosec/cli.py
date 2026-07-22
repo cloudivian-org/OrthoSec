@@ -14,7 +14,7 @@ import json
 import sys
 
 from orthosec import __version__
-from orthosec.config import load_dotenv
+from orthosec.config import load_dotenv, load_project_config
 from orthosec.core.scanner import Scanner
 from orthosec.intel.business_risk import annotate_findings
 from orthosec.profiles import DEFAULT_PROFILE, PROFILES, get_profile
@@ -34,12 +34,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_scan = sub.add_parser("scan", help="Scan an AI product for security risk")
     p_scan.add_argument("path", help="Path to the AI product (repo / dir / file)")
-    p_scan.add_argument("--profile", default=DEFAULT_PROFILE, choices=list(PROFILES),
-                        help=f"Audience view (default: {DEFAULT_PROFILE})")
+    p_scan.add_argument("--profile", default=None, choices=list(PROFILES),
+                        help=f"Audience view (default: {DEFAULT_PROFILE}, or .orthosec.yml)")
     p_scan.add_argument("--json", metavar="FILE", help="Write full findings as JSON")
     p_scan.add_argument("--sarif", metavar="FILE", help="Write SARIF 2.1.0 for CI/GitHub")
+    p_scan.add_argument("--html", metavar="FILE", help="Write a self-contained visual HTML report")
     p_scan.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
-    p_scan.add_argument("--fail-on", default="high",
+    p_scan.add_argument("--fail-on", default=None,
                         choices=["critical", "high", "medium", "low", "none"],
                         help="Exit non-zero if a finding at/above this severity exists (default: high)")
 
@@ -68,8 +69,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_scan(args) -> int:
-    profile = get_profile(args.profile)
-    scanner = Scanner()
+    cfg = load_project_config(args.path)  # .orthosec.yml at the target root, if any
+    profile = get_profile(args.profile or cfg.get("profile") or DEFAULT_PROFILE)
+    fail_on = args.fail_on or cfg.get("fail_on") or "high"
+    exclude = cfg.get("exclude") or []
+
+    scanner = Scanner(exclude=exclude)
     result = scanner.scan(args.path)
     annotate_findings(result.findings)  # deterministic business_impact on each finding
 
@@ -99,7 +104,13 @@ def _cmd_scan(args) -> int:
             json.dump(to_sarif(result), fh, indent=2)
         print(f"Wrote SARIF report -> {args.sarif}", file=sys.stderr)
 
-    return _exit_code(result, args.fail_on)
+    if args.html:
+        from orthosec.report.html import render_html
+        with open(args.html, "w", encoding="utf-8") as fh:
+            fh.write(render_html(result, profile=profile.id, exec_summary=exec_summary))
+        print(f"Wrote HTML report -> {args.html}", file=sys.stderr)
+
+    return _exit_code(result, fail_on)
 
 
 def _cmd_ask(args) -> int:
@@ -131,7 +142,7 @@ _ORDER = {"critical": 5, "high": 4, "medium": 3, "low": 2, "none": 0}
 def _exit_code(result, fail_on: str) -> int:
     if fail_on == "none":
         return 0
-    threshold = _ORDER[fail_on]
+    threshold = _ORDER.get(fail_on, _ORDER["high"])
     worst = max((f.severity.value for f in result.findings), default=0)
     return 1 if worst >= threshold else 0
 

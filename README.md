@@ -93,13 +93,32 @@ docker run --rm -v "$PWD:/scan" orthosec scan /scan --profile ciso
 docker run --rm --env-file .env -v "$PWD:/scan" orthosec scan /scan --profile ciso
 ```
 
-## CI / GitHub integration
+## Visual report
 
 ```bash
-python -m orthosec.cli scan . --sarif results.sarif --fail-on high
+python -m orthosec.cli scan ./my-ai-app --html report.html
 ```
 
-Upload `results.sarif` via `github/codeql-action/upload-sarif` to surface AI-security findings inline on pull requests. `--fail-on` sets the severity that breaks the build.
+A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+
+## Integrate with any AI product
+
+OrthoSec matches behavioral patterns, not a specific framework — so it works on LangChain, LlamaIndex, raw provider SDKs, custom agents, or MCP tools alike. Full contract in **[INTEGRATION.md](INTEGRATION.md)**. Four implemented ways in:
+
+1. **CLI** — `python -m orthosec.cli scan .`
+2. **Project config** — drop [`.orthosec.yml`](.orthosec.example.yml) at your repo root (profile, `fail_on`, `exclude`).
+3. **GitHub Action** — [`.github/workflows/orthosec.yml`](.github/workflows/orthosec.yml); findings post inline on PRs via SARIF.
+4. **Python API** — `from orthosec import Scanner`.
+
+```yaml
+# .github/workflows/orthosec.yml
+- uses: cloudivian-org/OrthoSec@main
+  with: { profile: appsec, fail-on: high, sarif-file: orthosec.sarif }
+- uses: github/codeql-action/upload-sarif@v3
+  with: { sarif_file: orthosec.sarif }
+```
+
+Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan/orthosec.sarif --fail-on high`.
 
 ## What it detects today (v0.1)
 

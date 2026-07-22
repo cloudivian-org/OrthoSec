@@ -1,0 +1,38 @@
+name: "OrthoSec AI Security Scan"
+description: "Scan any AI product for AI-specific security risk (OWASP LLM Top-10 + MITRE ATLAS) and post findings to the PR."
+author: "OrthoSec"
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  path:
+    description: "Path within the repo to scan"
+    required: false
+    default: "."
+  profile:
+    description: "Audience profile: engineer | appsec | ciso | product"
+    required: false
+    default: "appsec"
+  fail-on:
+    description: "Fail the build on a finding at/above this severity (critical|high|medium|low|none)"
+    required: false
+    default: "high"
+  sarif-file:
+    description: "Path to write the SARIF report"
+    required: false
+    default: "orthosec.sarif"
+
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  args:
+    - "scan"
+    - ${{ inputs.path }}
+    - "--profile"
+    - ${{ inputs.profile }}
+    - "--fail-on"
+    - ${{ inputs.fail-on }}
+    - "--sarif"
+    - ${{ inputs.sarif-file }}
+    - "--no-exec"
