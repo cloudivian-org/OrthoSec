@@ -45,19 +45,53 @@ python -m orthosec.cli scan examples/vulnerable-agent
            irreversible/high-impact actions behind human confirmation.
 ```
 
+## Audience profiles — one scan, four lenses
+
+The same findings, reframed for whoever is reading. `--profile` controls what the report shows, the severity floor, and how the executive briefing is written.
+
+```bash
+python -m orthosec.cli scan ./my-ai-app --profile engineer   # default: every issue + fix
+python -m orthosec.cli scan ./my-ai-app --profile appsec     # attack paths, ATLAS, CI gates
+python -m orthosec.cli scan ./my-ai-app --profile ciso       # posture, $risk, compliance — no line noise
+python -m orthosec.cli scan ./my-ai-app --profile product    # must-fix-before-ship vs. fast-follow
+```
+
+| Profile | Audience | Emphasis |
+|---|---|---|
+| `engineer` | AI/ML Engineer | Evidence + remediation on every finding |
+| `appsec` | Security / AppSec Engineer | Attack path, MITRE ATLAS, what to gate in CI |
+| `ciso` | CISO / Security Leader | Posture, dollar risk, regulatory exposure |
+| `product` | AI Product / Eng Leader | Risk vs. ship velocity, quick wins |
+
+`python -m orthosec.cli profiles` lists them.
+
 ## The executive layer
 
 The core scan runs offline. Add the intel layer for board-ready narrative + free-form Q&A:
 
 ```bash
 pip install -e ".[intel]"
-export ANTHROPIC_API_KEY=sk-ant-...
+cp .env.example .env      # then put your key in .env
 
-python -m orthosec.cli scan ./my-ai-app          # scan + executive briefing
+python -m orthosec.cli scan ./my-ai-app --profile ciso
 python -m orthosec.cli ask  ./my-ai-app "What's our EU AI Act exposure and what would fix it fastest?"
 ```
 
-Model defaults to `claude-opus-4-8`; override with `ORTHOSEC_MODEL`.
+**Configuration (`.env`)** — copy `.env.example` to `.env`. Real environment variables always win over the file.
+
+- **Anthropic API** — set `ANTHROPIC_API_KEY`. Model defaults to `claude-opus-4-8` (`ORTHOSEC_MODEL` overrides).
+- **Azure AI Foundry** (Claude via the Anthropic Messages API) — set `AZURE_API_KEY`, `AZURE_BASE_URL`, and `AZURE_MODELS` (e.g. `claude-sonnet-4-6`). OrthoSec auto-selects the Azure backend when these are present.
+
+The intel layer is provider-agnostic and degrades to a deterministic briefing (posture, $risk, compliance) when no key is set — the core product never depends on it.
+
+## Docker
+
+```bash
+docker build -t orthosec .
+docker run --rm -v "$PWD:/scan" orthosec scan /scan --profile ciso
+# with the exec layer:
+docker run --rm --env-file .env -v "$PWD:/scan" orthosec scan /scan --profile ciso
+```
 
 ## CI / GitHub integration
 
@@ -74,16 +108,21 @@ Upload `results.sarif` via `github/codeql-action/upload-sarif` to surface AI-sec
 | `prompt-hardening` | LLM01 / LLM07 | Untrusted input concatenated into prompts; secrets embedded in system prompts |
 | `secrets` | LLM02 | Hardcoded provider/model API keys |
 | `unsafe-model-load` | LLM03 / LLM04 | pickle / `torch.load` / unsafe deserialization; unpinned model fetches |
+| `output-handling` | LLM05 | LLM output flowing unsanitized into eval/shell/SQL/HTML sinks |
 | `tool-exposure` | LLM06 | Over-privileged agent tools (shell, file, HTTP, SQL) with no confirmation gate |
+| `rag-trust` | LLM08 | Untrusted web/upload content ingested into a retrieval corpus without provenance |
+
+Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern.
 
 Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@register`, done. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
-- **v0.1 — Static scanner** *(now)* — the integration model above: point it at any repo, zero runtime coupling.
-- **v0.2** — GitHub Action, more detectors (RAG poisoning, output-handling, unbounded consumption), richer compliance packs.
+- **v0.1 — Static scanner** — point it at any repo, zero runtime coupling.
+- **v0.2 — Multi-profile + provider-agnostic intel** *(now)* — engineer/appsec/ciso/product views, 6 detectors, Anthropic + Azure Foundry backends, Docker, `.env`.
 - **v0.3 — Runtime proxy** — inline gateway that catches live prompt injection / data leakage.
 - **v0.4 — SDKs** — drop-in Python/JS middleware for per-call telemetry.
+- **Backlog** — GitHub Action, unbounded-consumption (LLM10) + output-XSS detectors, HTML/PDF report export, richer compliance packs.
 
 ## Design
 

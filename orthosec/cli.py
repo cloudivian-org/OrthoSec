@@ -14,13 +14,16 @@ import json
 import sys
 
 from orthosec import __version__
+from orthosec.config import load_dotenv
 from orthosec.core.scanner import Scanner
 from orthosec.intel.business_risk import annotate_findings
+from orthosec.profiles import DEFAULT_PROFILE, PROFILES, get_profile
 from orthosec.report import console
 from orthosec.report.sarif import to_sarif
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()  # pick up ANTHROPIC_API_KEY / ORTHOSEC_MODEL from a .env if present
     parser = argparse.ArgumentParser(
         prog="orthosec",
         description="OrthoSec — the AI Security Architect. Technical AI risk analysis "
@@ -31,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_scan = sub.add_parser("scan", help="Scan an AI product for security risk")
     p_scan.add_argument("path", help="Path to the AI product (repo / dir / file)")
+    p_scan.add_argument("--profile", default=DEFAULT_PROFILE, choices=list(PROFILES),
+                        help=f"Audience view (default: {DEFAULT_PROFILE})")
     p_scan.add_argument("--json", metavar="FILE", help="Write full findings as JSON")
     p_scan.add_argument("--sarif", metavar="FILE", help="Write SARIF 2.1.0 for CI/GitHub")
     p_scan.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
@@ -41,8 +46,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ask = sub.add_parser("ask", help="Ask a grounded executive question about a scan")
     p_ask.add_argument("path", help="Path to the AI product")
     p_ask.add_argument("question", help="The executive question")
+    p_ask.add_argument("--profile", default="ciso", choices=list(PROFILES),
+                       help="Audience view (default: ciso)")
 
     sub.add_parser("detectors", help="List active detectors")
+    sub.add_parser("profiles", help="List available audience profiles")
 
     args = parser.parse_args(argv)
 
@@ -52,12 +60,15 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_ask(args)
     if args.command == "detectors":
         return _cmd_detectors()
+    if args.command == "profiles":
+        return _cmd_profiles()
 
     parser.print_help()
     return 0
 
 
 def _cmd_scan(args) -> int:
+    profile = get_profile(args.profile)
     scanner = Scanner()
     result = scanner.scan(args.path)
     annotate_findings(result.findings)  # deterministic business_impact on each finding
@@ -65,9 +76,9 @@ def _cmd_scan(args) -> int:
     exec_summary = None
     if not args.no_exec:
         from orthosec.intel.narrative import executive_summary
-        exec_summary = executive_summary(result)
+        exec_summary = executive_summary(result, profile=profile)
 
-    print(console.render(result, exec_summary=exec_summary))
+    print(console.render(result, exec_summary=exec_summary, profile=profile))
 
     if args.json:
         payload = {
@@ -105,6 +116,12 @@ def _cmd_detectors() -> int:
     for det in load_builtin_detectors():
         code = getattr(det, "owasp_llm", "")
         print(f"  {det.id:<20} {det.name}  ({code} {owasp_name(code)})")
+    return 0
+
+
+def _cmd_profiles() -> int:
+    for p in PROFILES.values():
+        print(f"  {p.id:<10} {p.label:<26} — {p.audience}")
     return 0
 
 

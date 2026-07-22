@@ -21,10 +21,12 @@ class TestScanEndToEnd(unittest.TestCase):
 
     def test_owasp_categories_covered(self):
         cats = {f.owasp_llm for f in self.result.findings}
-        # The demo intentionally triggers prompt injection, excessive agency, supply chain.
+        # The demo intentionally triggers each detector class.
         self.assertIn("LLM01", cats)  # prompt injection
         self.assertIn("LLM06", cats)  # excessive agency (shell tool)
         self.assertIn("LLM03", cats)  # unsafe pickle load
+        self.assertIn("LLM05", cats)  # improper output handling (eval on model output)
+        self.assertIn("LLM08", cats)  # untrusted RAG ingestion
 
     def test_every_finding_has_evidence_and_taxonomy(self):
         for f in self.result.findings:
@@ -51,6 +53,30 @@ class TestScoring(unittest.TestCase):
         many_low = [_finding(Severity.LOW) for _ in range(100)]
         one_crit = [_finding(Severity.CRITICAL)]
         self.assertGreater(posture_score(many_low), posture_score(one_crit))
+
+
+class TestProfiles(unittest.TestCase):
+    def test_all_profiles_render(self):
+        from orthosec.report import console
+        from orthosec.profiles import PROFILES
+        from orthosec.intel.business_risk import annotate_findings
+        result = Scanner().scan(EXAMPLE)
+        annotate_findings(result.findings)
+        for pid in PROFILES:
+            text = console.render(result, profile=pid)
+            self.assertIn("Posture score", text)
+
+    def test_ciso_suppresses_line_evidence(self):
+        from orthosec.report import console
+        from orthosec.intel.business_risk import annotate_findings
+        result = Scanner().scan(EXAMPLE)
+        annotate_findings(result.findings)
+        ciso = console.render(result, profile="ciso")
+        engineer = console.render(result, profile="engineer")
+        # CISO view shows compliance; engineer view shows raw evidence lines.
+        self.assertIn("Regulatory exposure", ciso)
+        self.assertIn("evidence:", engineer)
+        self.assertNotIn("evidence:", ciso)
 
 
 def _finding(sev: Severity) -> Finding:

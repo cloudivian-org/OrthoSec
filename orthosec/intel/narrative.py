@@ -20,8 +20,9 @@ from orthosec.core.finding import Finding
 from orthosec.core.scanner import ScanResult
 from orthosec.intel.business_risk import business_risk
 from orthosec.intel.compliance import compliance_exposure
+from orthosec.profiles import Profile, get_profile
 
-DEFAULT_MODEL = os.environ.get("ORTHOSEC_MODEL", "claude-opus-4-8")
+DEFAULT_MODEL = "claude-opus-4-8"
 
 _SYSTEM = textwrap.dedent(
     """\
@@ -64,22 +65,55 @@ def _facts_payload(result: ScanResult) -> dict:
     }
 
 
-def _client_or_none():
-    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
-        return None
+def _resolve_client_and_model():
+    """Pick the LLM backend from the environment. Returns (client, model) or (None, None).
+
+    Provider precedence:
+      1. Azure AI Foundry (Anthropic-compatible Messages API) — AZURE_API_KEY + AZURE_BASE_URL.
+         Model comes from ORTHOSEC_MODEL, else the first id in AZURE_MODELS.
+      2. First-party Anthropic API — ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN.
+    """
     try:
         import anthropic  # optional dependency (orthosec[intel])
     except ImportError:
-        return None
-    try:
-        return anthropic.Anthropic()
-    except Exception:
-        return None
+        return None, None
+
+    azure_key = os.environ.get("AZURE_API_KEY")
+    azure_url = os.environ.get("AZURE_BASE_URL")
+    if azure_key and azure_url:
+        model = os.environ.get("ORTHOSEC_MODEL") or _first_azure_model()
+        try:
+            client = anthropic.Anthropic(
+                api_key=azure_key,
+                base_url=azure_url,
+                # Azure Cognitive Services gateways authenticate with an `api-key`
+                # header; send it alongside the SDK's default x-api-key.
+                default_headers={"api-key": azure_key},
+            )
+            return client, model
+        except Exception:
+            return None, None
+
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        model = os.environ.get("ORTHOSEC_MODEL", DEFAULT_MODEL)
+        try:
+            return anthropic.Anthropic(), model
+        except Exception:
+            return None, None
+
+    return None, None
 
 
-def executive_summary(result: ScanResult) -> str:
-    """Board-ready narrative. Falls back to a deterministic template offline."""
-    client = _client_or_none()
+def _first_azure_model() -> str:
+    ids = [m.strip() for m in os.environ.get("AZURE_MODELS", "").split(",") if m.strip()]
+    return ids[0] if ids else "claude-sonnet-4-6"
+
+
+def executive_summary(result: ScanResult, profile: Profile | str | None = None) -> str:
+    """Audience-tuned narrative. Falls back to a deterministic template offline."""
+    if profile is None or isinstance(profile, str):
+        profile = get_profile(profile or "engineer")
+    client, model = _resolve_client_and_model()
     facts = _facts_payload(result)
     if client is None:
         return _fallback_summary(result, facts)
@@ -87,22 +121,12 @@ def executive_summary(result: ScanResult) -> str:
     prompt = (
         "Here are the deterministic scan facts as JSON:\n\n"
         f"{json.dumps(facts, indent=2)}\n\n"
-        "Write an executive security briefing with these sections:\n"
-        "1. Bottom line (2-3 sentences: are we exposed, how badly, what's the blast radius).\n"
-        "2. Top 3 risk drivers, each with the business consequence and the technical cause.\n"
-        "3. Regulatory exposure (map to the compliance controls in the facts).\n"
-        "4. Recommended actions, prioritized, with rough effort.\n"
-        "Keep it under 400 words. Ground everything in the facts."
+        f"Write a security briefing for {profile.audience}.\n"
+        f"Focus: {profile.narrative_focus}\n\n"
+        "Keep it under 400 words. Ground everything in the facts — never invent a finding."
     )
     try:
-        resp = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=4096,
-            system=_SYSTEM,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
-            messages=[{"role": "user", "content": prompt}],
-        )
+        resp = _call(client, model, prompt)
         return _text_of(resp)
     except Exception as exc:  # never let the exec layer break the scan
         return _fallback_summary(result, facts) + f"\n\n[LLM narrative unavailable: {exc}]"
@@ -110,12 +134,12 @@ def executive_summary(result: ScanResult) -> str:
 
 def answer_question(result: ScanResult, question: str) -> str:
     """Free-form executive Q&A, grounded on findings."""
-    client = _client_or_none()
+    client, model = _resolve_client_and_model()
     facts = _facts_payload(result)
     if client is None:
         return (
             "Free-form Q&A needs the intel layer (pip install 'orthosec[intel]' and set "
-            "ANTHROPIC_API_KEY). Deterministic facts are still available in the JSON report."
+            "ANTHROPIC_API_KEY or AZURE_API_KEY). Deterministic facts are still in the JSON report."
         )
     prompt = (
         f"Scan facts JSON:\n\n{json.dumps(facts, indent=2)}\n\n"
@@ -124,17 +148,23 @@ def answer_question(result: ScanResult, question: str) -> str:
         "scanning would be needed."
     )
     try:
-        resp = client.messages.create(
-            model=DEFAULT_MODEL,
-            max_tokens=4096,
-            system=_SYSTEM,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
-            messages=[{"role": "user", "content": prompt}],
-        )
+        resp = _call(client, model, prompt)
         return _text_of(resp)
     except Exception as exc:
         return f"[Q&A unavailable: {exc}]"
+
+
+def _call(client, model: str, prompt: str):
+    """Make the request. Retry without thinking/effort if the provider rejects them
+    (some gateways serve older API surfaces that 400 on adaptive thinking/effort)."""
+    base = dict(model=model, max_tokens=4096, system=_SYSTEM,
+                messages=[{"role": "user", "content": prompt}])
+    try:
+        return client.messages.create(
+            thinking={"type": "adaptive"}, output_config={"effort": "high"}, **base
+        )
+    except Exception:
+        return client.messages.create(**base)
 
 
 def _text_of(resp) -> str:

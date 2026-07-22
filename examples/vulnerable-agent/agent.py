@@ -37,3 +37,17 @@ def register_tools():
 def load_model(path):
     with open(path, "rb") as f:
         return pickle.load(f)
+
+
+# LLM05 / Improper output handling: model output passed straight into eval().
+def run_agent_step(client, user_input):
+    response = client.chat(build_prompt(user_input))
+    llm_output = response.content
+    return eval(llm_output)  # model output executed as code — RCE on injection
+
+
+# LLM08 / RAG poisoning: web-scraped content indexed with no provenance check.
+def index_web_docs(vectorstore, urls):
+    for url in urls:
+        page = requests.get(url).text
+        vectorstore.add_texts([page])  # attacker-controlled page becomes "trusted" context

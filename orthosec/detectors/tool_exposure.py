@@ -14,6 +14,7 @@ from typing import Iterable
 from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
+from orthosec.detectors._signals import mitigation_present
 
 # Sinks that hand the model dangerous real-world capability.
 _DANGEROUS = {
@@ -38,25 +39,6 @@ _TOOL_MARKER = re.compile(
 )
 # Markers that a human-in-the-loop / confirmation gate exists nearby.
 _CONFIRM = re.compile(r"(?i)(confirm|approval|human_in_the_loop|require_approval|allowlist|whitelist)")
-# Negations that flip a "confirm" mention into evidence there is NO gate.
-_NEGATED = re.compile(r"(?i)\b(no|without|lacks?|missing|skip|bypass|disable[d]?)\b")
-
-
-def _has_real_confirm(text: str) -> bool:
-    """True only if a confirmation gate appears in CODE (not a comment) and isn't negated.
-
-    A comment like '# no confirmation' must never be read as a mitigation — that's
-    exactly the case a security scanner cannot afford to get wrong.
-    """
-    for raw in text.splitlines():
-        line = raw.split("#", 1)[0].split("//", 1)[0]  # drop trailing comments
-        m = _CONFIRM.search(line)
-        if not m:
-            continue
-        if _NEGATED.search(line):
-            continue
-        return True
-    return False
 
 
 @register
@@ -73,7 +55,7 @@ class ToolExposureDetector:
             if not text or not _TOOL_MARKER.search(text):
                 continue  # file must expose tools at all
             lines = text.splitlines()
-            file_has_confirm = _has_real_confirm(text)
+            file_has_confirm = mitigation_present(text, _CONFIRM)
 
             for lineno, line in enumerate(lines, start=1):
                 for capability, pat in _DANGEROUS.items():
@@ -83,7 +65,7 @@ class ToolExposureDetector:
                     window = "\n".join(lines[max(0, lineno - 15):lineno + 5])
                     if not _TOOL_MARKER.search(window):
                         continue
-                    mitigated = file_has_confirm and _has_real_confirm(window)
+                    mitigated = file_has_confirm and mitigation_present(window, _CONFIRM)
                     yield Finding(
                         detector=self.id,
                         rule_id="ORTHO-AGENCY-001",
