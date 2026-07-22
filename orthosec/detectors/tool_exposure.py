@@ -18,8 +18,7 @@ from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
 from orthosec.detectors._signals import mitigation_present
-from orthosec.analysis.pyast import (safe_parse, find_tool_functions,
-                                     dangerous_sinks, has_confirmation)
+from orthosec.analysis.pyast import safe_parse, reachable_tool_sinks
 
 # --- regex path (JS/TS) -----------------------------------------------------
 _DANGEROUS = {
@@ -64,27 +63,23 @@ class ToolExposureDetector:
         if tree is None:
             yield from self._scan_regex(ctx, path, text)  # fallback on syntax error
             return
-        tool_fns = find_tool_functions(tree)
         lines = text.splitlines()
-        for name, fn in tool_fns.items():
-            sinks = dangerous_sinks(fn, lines)
-            if not sinks:
-                continue
-            mitigated = has_confirmation(fn)
-            for s in sinks:
-                yield Finding(
-                    detector=self.id,
-                    rule_id="ORTHO-AGENCY-001",
-                    title=f"Model-invokable tool '{name}' performs {s.capability} with no confirmation gate",
-                    severity=Severity.MEDIUM if mitigated else Severity.CRITICAL,
-                    owasp_llm="LLM06",
-                    atlas=["AML.T0053"],
-                    file=ctx.rel(path),
-                    line=s.line,
-                    evidence=s.snippet,
-                    remediation=_REMEDIATION,
-                    confidence=0.6 if mitigated else 0.85,
-                )
+        # reachable_tool_sinks resolves sinks reachable from a tool directly OR
+        # through local helper functions it calls (interprocedural).
+        for s, mitigated, name in reachable_tool_sinks(tree, lines):
+            yield Finding(
+                detector=self.id,
+                rule_id="ORTHO-AGENCY-001",
+                title=f"Model-invokable tool '{name}' can reach {s.capability} with no confirmation gate",
+                severity=Severity.MEDIUM if mitigated else Severity.CRITICAL,
+                owasp_llm="LLM06",
+                atlas=["AML.T0053"],
+                file=ctx.rel(path),
+                line=s.line,
+                evidence=s.snippet,
+                remediation=_REMEDIATION,
+                confidence=0.6 if mitigated else 0.85,
+            )
 
     # --- JS/TS: proximity regex -----------------------------------------
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:

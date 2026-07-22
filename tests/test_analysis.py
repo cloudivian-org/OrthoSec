@@ -4,7 +4,9 @@ import unittest
 from orthosec.analysis.pyast import (safe_parse, find_tool_functions,
                                      dangerous_sinks, has_confirmation,
                                      output_taint_sinks, injection_sinks,
-                                     interprocedural_output_sinks)
+                                     interprocedural_output_sinks,
+                                     interprocedural_injection_sinks,
+                                     reachable_tool_sinks)
 from orthosec.core.scanner import Scanner
 
 
@@ -115,6 +117,25 @@ class TestInterprocedural(unittest.TestCase):
                "def handle(config):\n"
                "    run_tool(config)\n")
         self.assertEqual(interprocedural_output_sinks(safe_parse(src), src.splitlines()), [])
+
+    def test_tool_reaches_sink_through_helper(self):
+        src = ("import os\n"
+               "def _exec(cmd):\n"
+               "    os.system(cmd)\n"
+               "def register():\n"
+               "    def run(cmd):\n"
+               "        _exec(cmd)\n"
+               "    return [{'type': 'function', 'name': 'run', 'fn': run}]\n")
+        results = reachable_tool_sinks(safe_parse(src), src.splitlines())
+        self.assertTrue(any("shell" in s.capability for s, _mit, _name in results))
+
+    def test_untrusted_into_prompt_via_helper(self):
+        src = ("def make_prompt(text):\n"
+               "    sp = 'You are a bot. ' + text\n"
+               "    return [{'role': 'system', 'content': sp}]\n"
+               "def handle(user_input):\n"
+               "    return make_prompt(user_input)\n")
+        self.assertTrue(interprocedural_injection_sinks(safe_parse(src), src.splitlines()))
 
 
 if __name__ == "__main__":

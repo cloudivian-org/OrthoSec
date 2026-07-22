@@ -43,7 +43,7 @@ A scanner that cries wolf on those gets uninstalled.
 
 `python benchmark/run.py --adversarial` runs a second corpus of code that *tries*
 to beat the detectors: obfuscated attacks that should still be caught, and safe
-code crafted to trip a false positive. Current state (12 cases):
+code crafted to trip a false positive. Current state (14 cases):
 
 | Probe | Expected | Result |
 |---|---|---|
@@ -53,6 +53,8 @@ code crafted to trip a false positive. Current state (12 cases):
 | JS model output → `innerHTML` (XSS) | LLM05 | ✓ caught |
 | Model output → 4 reassignments + concat → shell | LLM05 | ✓ caught (AST taint) |
 | Model output → helper function that sinks it | LLM05 | ✓ caught (interprocedural) |
+| Untrusted input → helper that builds the prompt | LLM01 | ✓ caught (interprocedural) |
+| Tool → helper function that holds the sink | LLM06 | ✓ caught (interprocedural) |
 | `torch.load(map_location=...)` no `weights_only` | LLM03 | ✓ caught |
 | Tool sink far from the tool marker | LLM06 | ✓ caught (AST tool dataflow) |
 | `subprocess` in a plain build script (not a tool) | none | ✓ no false positive |
@@ -60,13 +62,15 @@ code crafted to trip a false positive. Current state (12 cases):
 | `eval()` on a config value (not model output) | none | ✓ no false positive |
 | System prompt from a static/config value (no user input) | none | ✓ no false positive |
 
-**12/12 handled, 0 known-miss.** Every gap this set exposed is fixed. The three
+**14/14 handled, 0 known-miss.** Every gap this set exposed is fixed. The three
 dataflow-shaped detectors (LLM01 prompt injection, LLM05 output handling, LLM06
 excessive agency) run Python **AST taint/dataflow** — untrusted input traced into
 a system prompt, model output traced into a sink, and dangerous sinks resolved
 inside model-invokable tools — each firing only when the *actual* data reaches the
-*actual* sink, at any distance and **across function calls within a file**
-(interprocedural), respecting trust-boundary/sanitizer mitigations
+*actual* sink, at any distance and **across function calls within a file** — interprocedural for
+all three (untrusted input into a prompt-building helper, model output into a helper
+that sinks it, a tool that delegates to a helper holding the sink) — respecting
+trust-boundary/sanitizer mitigations
 (see `orthosec/analysis/pyast.py`). `tests/test_benchmark.py` and
 `tests/test_analysis.py` guard every case against regression.
 

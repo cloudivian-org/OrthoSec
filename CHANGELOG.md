@@ -18,12 +18,13 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   fires only when tainted data actually reaches the prompt. Python path; other file
   types keep regex. Completes AST dataflow for all three dataflow-shaped detectors
   (LLM01, LLM05, LLM06).
-- **Interprocedural taint (LLM05)** — model output passed as an argument to a helper
-  function whose body sinks that parameter is now caught at the call site (the sink
-  can live in a different function). Intra-file call-graph summaries; fires only when
-  the tainted arg maps to a param that actually reaches a sink.
+- **Interprocedural analysis for all three dataflow detectors** (intra-file
+  call graph): LLM05 model output passed to a helper that sinks the parameter;
+  LLM06 a tool that delegates to a helper holding the dangerous sink (transitive
+  capability reachability); LLM01 untrusted input passed to a helper that builds
+  the system prompt. Each fires only when the real data reaches the real sink.
 - **Adversarial benchmark set** (`benchmark/adversarial/`, `--adversarial`) — evasion
-  and false-positive-stress cases. Now 12/12 handled, 0 known-miss. Guarded by
+  and false-positive-stress cases. Now 14/14 handled, 0 known-miss. Guarded by
   `tests/test_benchmark.py` + `tests/test_analysis.py`.
 
 ### Fixed

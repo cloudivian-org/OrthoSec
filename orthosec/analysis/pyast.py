@@ -251,20 +251,26 @@ def _seed_output(scope: ast.AST) -> set[str]:
     return seed
 
 
-def _propagate(scope: ast.AST, seed: set[str]) -> set[str]:
-    """Propagate a taint seed through assignments to a fixpoint (sanitizers clear)."""
+def _propagate_with(scope: ast.AST, seed: set[str], is_source) -> set[str]:
+    """Propagate a taint seed through assignments to a fixpoint, using `is_source`
+    (a `(expr, tainted) -> bool` predicate) to decide when a value carries taint."""
     tainted = set(seed)
     changed = True
     while changed:
         changed = False
         for node in ast.walk(scope):
-            if isinstance(node, ast.Assign) and _expr_tainted(node.value, tainted):
+            if isinstance(node, ast.Assign) and is_source(node.value, tainted):
                 for t in node.targets:
                     for nm in _assigned_names(t):
                         if nm not in tainted:
                             tainted.add(nm)
                             changed = True
     return tainted
+
+
+def _propagate(scope: ast.AST, seed: set[str]) -> set[str]:
+    """Propagate model-output taint (sanitizers clear it)."""
+    return _propagate_with(scope, seed, _expr_tainted)
 
 
 def _sinks_with_taint(scope: ast.AST, tainted: set[str], source_lines: list[str],
@@ -317,6 +323,51 @@ def output_taint_sinks(scope: ast.AST, source_lines: list[str]) -> list[Sink]:
 def _function_defs(tree: ast.AST) -> dict[str, ast.AST]:
     return {n.name: n for n in ast.walk(tree)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
+def _callees(fn: ast.AST, funcnames: set[str]) -> set[str]:
+    out = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            n = _seg(node.func)
+            if n in funcnames:
+                out.add(n)
+    return out
+
+
+def reachable_tool_sinks(tree: ast.AST, source_lines: list[str]):
+    """For each model-invokable tool, the dangerous sinks reachable from it —
+    directly or through local helper functions it calls (transitive, fixpoint).
+
+    Returns a list of (Sink, mitigated, tool_name). Capability-reachability, not
+    taint: an over-privileged tool is a problem regardless of the argument value.
+    """
+    funcs = _function_defs(tree)
+    names = set(funcs)
+    reach = {name: {(s.line, s.capability): s for s in dangerous_sinks(fn, source_lines)}
+             for name, fn in funcs.items()}
+    callees = {name: _callees(fn, names) for name, fn in funcs.items()}
+    changed = True
+    while changed:
+        changed = False
+        for name in funcs:
+            for c in callees[name]:
+                for k, s in reach[c].items():
+                    if k not in reach[name]:
+                        reach[name][k] = s
+                        changed = True
+
+    tool_fns = find_tool_functions(tree)
+    results = []
+    seen = set()
+    for name, fn in tool_fns.items():
+        mitigated = has_confirmation(fn)
+        for k, s in reach.get(name, {}).items():
+            if k in seen:
+                continue
+            seen.add(k)
+            results.append((s, mitigated, name))
+    return results
 
 
 def _dangerous_params(fn: ast.AST, source_lines: list[str]) -> tuple[set[str], list[str]]:
@@ -396,26 +447,20 @@ def _expr_untrusted(expr: ast.AST, untrusted: set[str]) -> bool:
     return False
 
 
-def untrusted_vars(scope: ast.AST) -> set[str]:
-    """Names carrying untrusted input within a scope (name + call seeded, fixpoint)."""
-    untrusted: set[str] = set()
+def _seed_untrusted(scope: ast.AST) -> set[str]:
+    seed: set[str] = set()
     for node in ast.walk(scope):
         if isinstance(node, ast.arg) and _USER_NAME.search(node.arg):
-            untrusted.add(node.arg)
+            seed.add(node.arg)
         if isinstance(node, ast.Name) and isinstance(getattr(node, "ctx", None), ast.Store) \
                 and _USER_NAME.search(node.id):
-            untrusted.add(node.id)
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(scope):
-            if isinstance(node, ast.Assign) and _expr_untrusted(node.value, untrusted):
-                for t in node.targets:
-                    for nm in _assigned_names(t):
-                        if nm not in untrusted:
-                            untrusted.add(nm)
-                            changed = True
-    return untrusted
+            seed.add(node.id)
+    return seed
+
+
+def untrusted_vars(scope: ast.AST) -> set[str]:
+    """Names carrying untrusted input within a scope (name + call seeded, fixpoint)."""
+    return _propagate_with(scope, _seed_untrusted(scope), _expr_untrusted)
 
 
 def _has_hardening(scope: ast.AST) -> bool:
@@ -435,44 +480,96 @@ def _dict_role_content(node: ast.Dict):
     return role, content
 
 
+def _injection_in_scope(scope: ast.AST, untrusted: set[str], source_lines: list[str],
+                        seen: set[int]) -> list[Sink]:
+    """System-prompt constructions in `scope` embedding the given untrusted names."""
+    if not untrusted or _has_hardening(scope):
+        return []
+
+    def snip(line):
+        return source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+
+    out: list[Sink] = []
+    flagged_vars: set[str] = set()
+    _MSG = "untrusted input in system prompt (no trust boundary)"
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Assign):
+            names = [nm for t in node.targets for nm in _assigned_names(t)]
+            if any(_SYS_PROMPT_TARGET.search(nm) for nm in names) \
+                    and _refs_taint(node.value, untrusted):
+                if node.lineno not in seen:
+                    out.append(Sink(_MSG, node.lineno, snip(node.lineno)))
+                    seen.add(node.lineno)
+                flagged_vars.update(names)
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Dict):
+            role, content = _dict_role_content(node)
+            if role != "system" or content is None:
+                continue
+            if isinstance(content, ast.Name) and content.id in flagged_vars:
+                continue
+            if _refs_taint(content, untrusted):
+                line = getattr(content, "lineno", node.lineno)
+                if line not in seen:
+                    out.append(Sink(_MSG, line, snip(line)))
+                    seen.add(line)
+    return out
+
+
 def injection_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
     """System-prompt constructions that embed untrusted input with no trust boundary."""
     scopes = [n for n in ast.walk(tree)
               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] or [tree]
     out: list[Sink] = []
     seen: set[int] = set()
+    for scope in scopes:
+        out += _injection_in_scope(scope, untrusted_vars(scope), source_lines, seen)
+    return out
 
-    def snip(line):
-        return source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
 
+def _prompt_building_params(fn: ast.AST, source_lines: list[str]) -> tuple[set[str], list[str]]:
+    """Params of `fn` that, if untrusted, reach a system-prompt construction inside `fn`."""
+    params = [a.arg for a in fn.args.args] + [a.arg for a in getattr(fn.args, "kwonlyargs", [])]
+    dangerous = set()
+    for p in params:
+        seed = _propagate_with(fn, {p}, _expr_untrusted)
+        if _injection_in_scope(fn, seed, source_lines, set()):
+            dangerous.add(p)
+    return dangerous, params
+
+
+def interprocedural_injection_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
+    """Untrusted input passed to a helper whose parameter builds a system prompt."""
+    funcs = _function_defs(tree)
+    summaries = {}
+    for name, fn in funcs.items():
+        dangerous, params = _prompt_building_params(fn, source_lines)
+        if dangerous:
+            summaries[name] = (dangerous, params)
+    if not summaries:
+        return []
+    scopes = [n for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] or [tree]
+    out: list[Sink] = []
+    seen: set[int] = set()
     for scope in scopes:
         untrusted = untrusted_vars(scope)
-        if not untrusted or _has_hardening(scope):
+        if not untrusted:
             continue
-        flagged_vars: set[str] = set()
-        # Assignment to a system-prompt-named var, from an expr carrying untrusted input.
         for node in ast.walk(scope):
-            if isinstance(node, ast.Assign):
-                names = [nm for t in node.targets for nm in _assigned_names(t)]
-                if any(_SYS_PROMPT_TARGET.search(nm) for nm in names) \
-                        and _refs_taint(node.value, untrusted):
-                    if node.lineno not in seen:
-                        out.append(Sink("untrusted input in system prompt (no trust boundary)",
-                                        node.lineno, snip(node.lineno)))
-                        seen.add(node.lineno)
-                    flagged_vars.update(names)
-        # role:system dict whose content carries untrusted input.
-        for node in ast.walk(scope):
-            if isinstance(node, ast.Dict):
-                role, content = _dict_role_content(node)
-                if role != "system" or content is None:
-                    continue
-                if isinstance(content, ast.Name) and content.id in flagged_vars:
-                    continue
-                if _refs_taint(content, untrusted):
-                    line = getattr(content, "lineno", node.lineno)
-                    if line not in seen:
-                        out.append(Sink("untrusted input in system prompt (no trust boundary)",
-                                        line, snip(line)))
-                        seen.add(line)
+            if not isinstance(node, ast.Call):
+                continue
+            fname = _seg(node.func)
+            if fname not in summaries:
+                continue
+            dangerous, params = summaries[fname]
+            hit = any(i < len(params) and params[i] in dangerous and _refs_taint(a, untrusted)
+                      for i, a in enumerate(node.args))
+            hit = hit or any(kw.arg in dangerous and _refs_taint(kw.value, untrusted)
+                             for kw in node.keywords)
+            if hit and node.lineno not in seen:
+                line = node.lineno
+                snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+                out.append(Sink(f"untrusted input into a system prompt via {fname}()", line, snippet))
+                seen.add(line)
     return out

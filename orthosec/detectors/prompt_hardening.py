@@ -17,7 +17,8 @@ from typing import Iterable
 from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
-from orthosec.analysis.pyast import safe_parse, injection_sinks
+from orthosec.analysis.pyast import (safe_parse, injection_sinks,
+                                     interprocedural_injection_sinks)
 
 # System-prompt shape + unsanitized-concat + hardening (regex path for non-Python).
 _SYS_ASSIGN = re.compile(r"(?i)(system_prompt|system_message|system_instruction|SYSTEM_PROMPT)\s*[:=]")
@@ -62,10 +63,14 @@ class PromptHardeningDetector:
             yield from self._scan_regex(ctx, path, text)
             return
         lines = text.splitlines()
-        for s in injection_sinks(tree, lines):
+        seen_lines: set[int] = set()
+        for s in injection_sinks(tree, lines) + interprocedural_injection_sinks(tree, lines):
+            if s.line in seen_lines:
+                continue
+            seen_lines.add(s.line)
             yield Finding(
                 detector=self.id, rule_id="ORTHO-PI-001",
-                title="Untrusted input concatenated into prompt without trust boundary",
+                title="Untrusted input reaches a system prompt without a trust boundary",
                 severity=Severity.HIGH, owasp_llm="LLM01",
                 atlas=["AML.T0051", "AML.T0051.000"],
                 file=ctx.rel(path), line=s.line, evidence=s.snippet,
