@@ -99,7 +99,28 @@ docker run --rm --env-file .env -v "$PWD:/scan" orthosec scan /scan --profile ci
 python -m orthosec.cli scan ./my-ai-app --html report.html
 ```
 
-A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+
+## Remediation agents
+
+Every finding is routed to a specialized **remediation agent** that owns a deterministic, reviewable fix plan. Fixes are **manual by default** and **auto is opt-in**:
+
+```bash
+python -m orthosec.cli remediate ./my-ai-app                       # print plans (manual)
+python -m orthosec.cli remediate ./my-ai-app --rule ORTHO-AGENCY-001 --suggest   # draft a patch, write nothing
+python -m orthosec.cli remediate ./my-ai-app --rule ORTHO-SUPPLY-001 --auto      # apply the patch (.orig backup)
+```
+
+| Agent | Fixes | Auto? |
+|---|---|---|
+| Prompt Boundary | prompt-injection surface (LLM01) | ✅ |
+| Agency Gate | over-privileged tools (LLM06) | ✅ |
+| Safe Loader | unsafe deserialization (LLM03) | ✅ |
+| Output Sanitizer | improper output handling (LLM05) | ✅ |
+| Provenance | untrusted RAG ingestion (LLM08) | manual |
+| Secret Rotation | committed credentials (LLM02) | manual |
+
+Auto-fix drafts a minimal patch via the intel layer (Anthropic / Azure), backs up the original to `*.orig`, and applies it — you review the diff before committing. Rotation and source-trust decisions stay manual by design. Design contract: the deterministic layer decides **what** is wrong and the plan; the LLM only drafts the **patch**, never invents findings.
 
 ## Integrate with any AI product
 
@@ -138,10 +159,11 @@ Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@
 ## Roadmap
 
 - **v0.1 — Static scanner** — point it at any repo, zero runtime coupling.
-- **v0.2 — Multi-profile + provider-agnostic intel** *(now)* — engineer/appsec/ciso/product views, 6 detectors, Anthropic + Azure Foundry backends, Docker, `.env`.
-- **v0.3 — Runtime proxy** — inline gateway that catches live prompt injection / data leakage.
-- **v0.4 — SDKs** — drop-in Python/JS middleware for per-call telemetry.
-- **Backlog** — GitHub Action, unbounded-consumption (LLM10) + output-XSS detectors, HTML/PDF report export, richer compliance packs.
+- **v0.2 — Multi-profile + provider-agnostic intel** — engineer/appsec/ciso/product views, 6 detectors, Anthropic + Azure Foundry backends, Docker, `.env`.
+- **v0.3 — Integration + visual report** — `.orthosec.yml`, GitHub Action, self-contained HTML report.
+- **v0.4 — Remediation agents** *(now)* — per-finding fix agents; manual plans + opt-in LLM auto-fix; interactive remediation UI in the report.
+- **v0.5 — Runtime proxy** — inline gateway that catches live prompt injection / data leakage.
+- **Backlog** — SDK middleware, unbounded-consumption (LLM10) detector, PDF export, richer compliance packs, published GHCR image + release.
 
 ## Design
 

@@ -105,6 +105,23 @@ class TestConfigAndReports(unittest.TestCase):
         self.assertNotIn("https://", h.replace("w3.org", ""))  # no external requests
 
 
+class TestRemediation(unittest.TestCase):
+    def test_agents_assigned(self):
+        from orthosec.remediation import assign, agent_for, AGENTS
+        result = Scanner().scan(EXAMPLE)
+        assign(result.findings)
+        for f in result.findings:
+            self.assertIn("agent_name", f.metadata)
+            self.assertTrue(f.metadata["plan"])
+            self.assertIn(agent_for(f).id, [a.id for a in AGENTS.values()] + ["review"])
+
+    def test_secrets_agent_is_manual_only(self):
+        # Rotating a live credential must never be auto-applied.
+        from orthosec.remediation import AGENTS
+        self.assertFalse(AGENTS["secrets"].auto_available)
+        self.assertTrue(AGENTS["unsafe-model-load"].auto_available)
+
+
 def _finding(sev: Severity) -> Finding:
     return Finding(
         detector="t", rule_id="T-1", title="t", severity=sev,

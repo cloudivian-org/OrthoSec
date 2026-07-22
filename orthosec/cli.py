@@ -50,6 +50,15 @@ def main(argv: list[str] | None = None) -> int:
     p_ask.add_argument("--profile", default="ciso", choices=list(PROFILES),
                        help="Audience view (default: ciso)")
 
+    p_rem = sub.add_parser("remediate", help="Plan or apply fixes via remediation agents")
+    p_rem.add_argument("path", help="Path to the AI product")
+    p_rem.add_argument("--rule", help="Comma-separated rule ids to target (default: all)")
+    p_rem.add_argument("--agent", help="Only findings handled by this remediation agent id")
+    p_rem.add_argument("--suggest", action="store_true",
+                       help="Include an LLM-drafted patch for review (no files written)")
+    p_rem.add_argument("--auto", action="store_true",
+                       help="Apply LLM-drafted patches in place (backs up originals to .orig)")
+
     sub.add_parser("detectors", help="List active detectors")
     sub.add_parser("profiles", help="List available audience profiles")
 
@@ -59,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_scan(args)
     if args.command == "ask":
         return _cmd_ask(args)
+    if args.command == "remediate":
+        return _cmd_remediate(args)
     if args.command == "detectors":
         return _cmd_detectors()
     if args.command == "profiles":
@@ -77,6 +88,8 @@ def _cmd_scan(args) -> int:
     scanner = Scanner(exclude=exclude)
     result = scanner.scan(args.path)
     annotate_findings(result.findings)  # deterministic business_impact on each finding
+    from orthosec.remediation import assign
+    assign(result.findings)             # attach remediation agent + plan to each finding
 
     exec_summary = None
     if not args.no_exec:
@@ -119,6 +132,80 @@ def _cmd_ask(args) -> int:
     annotate_findings(result.findings)
     print(answer_question(result, args.question))
     return 0
+
+
+def _cmd_remediate(args) -> int:
+    from pathlib import Path
+    from orthosec.remediation import assign, agent_for
+
+    result = Scanner(exclude=(load_project_config(args.path).get("exclude") or [])).scan(args.path)
+    assign(result.findings)
+
+    targets = result.findings
+    if args.rule:
+        wanted = {r.strip() for r in args.rule.split(",")}
+        targets = [f for f in targets if f.rule_id in wanted]
+    if args.agent:
+        targets = [f for f in targets if agent_for(f).id == args.agent]
+
+    if not targets:
+        print("No matching findings to remediate.")
+        return 0
+
+    print(f"Remediation plan — {len(targets)} finding(s)\n")
+    root = Path(result.root)
+    applied = 0
+    for f in targets:
+        a = agent_for(f)
+        mode = "auto-fixable" if a.auto_available else "manual only"
+        print(f"● {f.rule_id}  {f.location}")
+        print(f"    {f.title}")
+        print(f"    agent: {a.name} ({a.id}) — {mode}")
+        for i, step in enumerate(a.steps, 1):
+            print(f"      {i}. {step}")
+
+        if args.suggest or args.auto:
+            patch = _draft_patch(f, root)
+            if patch is None:
+                print("    [no patch: set AZURE_API_KEY/ANTHROPIC_API_KEY + install orthosec[intel]]")
+            elif args.auto and a.auto_available:
+                applied += _apply_patch(root, f.file, patch)
+            elif args.auto:
+                print("    [skipped auto: this agent is manual-only for safety]")
+            else:
+                print("    ── suggested patch (review; not written) ──")
+                for line in patch.splitlines()[:40]:
+                    print(f"    | {line}")
+        print()
+
+    if args.auto:
+        print(f"Applied {applied} patch(es). Originals backed up to *.orig. Review the diffs before committing.")
+    elif not args.suggest:
+        print("Run with --suggest to draft patches, or --auto to apply them (needs the intel layer).")
+    return 0
+
+
+def _draft_patch(finding, root):
+    try:
+        from orthosec.intel.autofix import suggest_patch
+    except Exception:
+        return None
+    from pathlib import Path
+    fpath = root / finding.file
+    if not fpath.is_file():
+        return None
+    return suggest_patch(finding, fpath.read_text(encoding="utf-8", errors="replace"))
+
+
+def _apply_patch(root, rel_file, patch: str) -> int:
+    from pathlib import Path
+    fpath = Path(root) / rel_file
+    backup = fpath.with_suffix(fpath.suffix + ".orig")
+    if not backup.exists():
+        backup.write_text(fpath.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+    fpath.write_text(patch, encoding="utf-8")
+    print(f"    ✓ applied fix to {rel_file} (backup: {backup.name})")
+    return 1
 
 
 def _cmd_detectors() -> int:

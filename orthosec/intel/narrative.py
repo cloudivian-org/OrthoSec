@@ -154,10 +154,10 @@ def answer_question(result: ScanResult, question: str) -> str:
         return f"[Q&A unavailable: {exc}]"
 
 
-def _call(client, model: str, prompt: str):
+def _call(client, model: str, prompt: str, system: str | None = None, max_tokens: int = 4096):
     """Make the request. Retry without thinking/effort if the provider rejects them
     (some gateways serve older API surfaces that 400 on adaptive thinking/effort)."""
-    base = dict(model=model, max_tokens=4096, system=_SYSTEM,
+    base = dict(model=model, max_tokens=max_tokens, system=system or _SYSTEM,
                 messages=[{"role": "user", "content": prompt}])
     try:
         return client.messages.create(
