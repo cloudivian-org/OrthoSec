@@ -4,13 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orthosec"
-version = "0.5.0"
+version = "0.6.0"
 description = "The AI Security Architect — technical AI risk analysis with executive business context. Open source."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "OrthoSec" }]
 keywords = ["ai-security", "llm-security", "ai-spm", "owasp-llm", "mitre-atlas", "ai-governance"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
 
 # Core scan + report path is STDLIB ONLY — installs and runs with zero deps.
 dependencies = []
@@ -26,10 +39,16 @@ dev = ["pytest>=8", "anthropic>=0.40", "rich>=13"]
 orthosec = "orthosec.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/orthosec/orthosec"
+Homepage = "https://github.com/cloudivian-org/OrthoSec"
+Repository = "https://github.com/cloudivian-org/OrthoSec"
+Issues = "https://github.com/cloudivian-org/OrthoSec/issues"
+Changelog = "https://github.com/cloudivian-org/OrthoSec/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["orthosec*"]
+
+[tool.setuptools.package-data]
+orthosec = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

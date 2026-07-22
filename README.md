@@ -19,11 +19,14 @@ AI products fail in AI-specific ways — prompt injection, excessive agency, mod
 
 ## Quick start
 
-Zero dependencies. Clone and run:
+Zero dependencies. Install, or clone and run:
 
 ```bash
-git clone https://github.com/orthosec/orthosec
-cd orthosec
+pip install orthosec                     # once published; or from source below
+orthosec scan ./path/to/your/ai-app
+
+# from source (no install):
+git clone https://github.com/cloudivian-org/OrthoSec && cd OrthoSec
 python -m orthosec.cli scan ./path/to/your/ai-app
 ```
 
@@ -191,14 +194,26 @@ const chat = guard(async (prompt) => client.chat.completions.create(/* ... */),
                    { mode: "block", onRisk: (r) => log.warn(r.risks) });
 ```
 
+## Runtime gateway (inline proxy)
+
+For defense without touching app code, run OrthoSec as a proxy in front of the model provider and point your base URL at it:
+
+```bash
+orthosec proxy --upstream https://api.openai.com --mode block
+# then: export OPENAI_BASE_URL=http://127.0.0.1:8100/v1
+```
+
+Every request/response flows through inline: injected prompts are refused (`block`) or logged (`monitor`) before reaching the provider, and responses are scanned for credential leaks / executable payloads. Provider-agnostic (OpenAI + Anthropic message shapes), stdlib-only, adds `X-OrthoSec-*-Risk` headers and a JSON audit log.
+
 ## Roadmap
 
 - **v0.1 — Static scanner** — point it at any repo, zero runtime coupling.
 - **v0.2 — Multi-profile + provider-agnostic intel** — engineer/appsec/ciso/product views, 6 detectors, Anthropic + Azure Foundry backends, Docker, `.env`.
 - **v0.3 — Integration + visual report** — `.orthosec.yml`, GitHub Action, self-contained HTML report.
 - **v0.4 — Remediation agents** — per-finding fix agents; manual plans + opt-in LLM auto-fix; remediation UI in the report.
-- **v0.5 — Runtime guard + LLM10 + release** *(now)* — `@guard` SDK, unbounded-consumption detector, richer compliance packs (ISO 27001 / NIST CSF), GHCR image + tagged releases.
-- **Backlog** — inline runtime proxy/gateway, JS/TS runtime SDK, PDF export, GitHub Marketplace listing, more language detectors.
+- **v0.5 — Runtime guard + LLM10 + release** — `@guard` SDK (Python + Node), unbounded-consumption detector, richer compliance packs (ISO 27001 / NIST CSF).
+- **v0.6 — Runtime gateway + distribution** *(now)* — inline `orthosec proxy` (block/monitor), pre-commit hook, PyPI + npm packaging ready.
+- **Backlog** — GitHub Marketplace listing, detection-efficacy benchmark, PDF export, more language detectors, managed dashboard.
 
 ## Architecture
 

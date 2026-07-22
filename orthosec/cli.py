@@ -59,6 +59,14 @@ def main(argv: list[str] | None = None) -> int:
     p_rem.add_argument("--auto", action="store_true",
                        help="Apply LLM-drafted patches in place (backs up originals to .orig)")
 
+    p_proxy = sub.add_parser("proxy", help="Run the inline runtime gateway (inspect live LLM traffic)")
+    p_proxy.add_argument("--upstream", default=None,
+                         help="Provider base URL (or ORTHOSEC_UPSTREAM). e.g. https://api.openai.com")
+    p_proxy.add_argument("--host", default="127.0.0.1")
+    p_proxy.add_argument("--port", type=int, default=8100)
+    p_proxy.add_argument("--mode", default="monitor", choices=["monitor", "block"],
+                         help="monitor logs risks; block refuses injected requests (default: monitor)")
+
     sub.add_parser("detectors", help="List active detectors")
     sub.add_parser("profiles", help="List available audience profiles")
 
@@ -70,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_ask(args)
     if args.command == "remediate":
         return _cmd_remediate(args)
+    if args.command == "proxy":
+        return _cmd_proxy(args)
     if args.command == "detectors":
         return _cmd_detectors()
     if args.command == "profiles":
@@ -206,6 +216,18 @@ def _apply_patch(root, rel_file, patch: str) -> int:
     fpath.write_text(patch, encoding="utf-8")
     print(f"    ✓ applied fix to {rel_file} (backup: {backup.name})")
     return 1
+
+
+def _cmd_proxy(args) -> int:
+    import os
+    from orthosec.proxy import run_proxy
+    upstream = args.upstream or os.environ.get("ORTHOSEC_UPSTREAM")
+    if not upstream:
+        print("error: set --upstream or ORTHOSEC_UPSTREAM (e.g. https://api.openai.com)",
+              file=sys.stderr)
+        return 2
+    run_proxy(upstream=upstream, host=args.host, port=args.port, mode=args.mode)
+    return 0
 
 
 def _cmd_detectors() -> int:

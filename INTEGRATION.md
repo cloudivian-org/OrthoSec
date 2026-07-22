@@ -105,12 +105,12 @@ Outputs available: console, JSON (`--json`), SARIF (`--sarif`), self-contained H
 
 ## Runtime integration (roadmap — the contract)
 
-Phase 1 is static (pre-deploy); the runtime guard (§5 above) ships today for Python and Node. Next:
+Phase 1 is static (pre-deploy); both runtime modes ship today:
 
-- **Shipped — SDK guard.** `from orthosec import guard` (Python) / `@orthosec/guard` (Node) wraps LLM calls, blocking injection and scanning output at call time. One wrapper.
-- **Next — Proxy / gateway.** Point your app's LLM base URL at OrthoSec; it inspects live prompts/responses inline and emits the same `Finding` objects. One config line (`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`).
+- **SDK guard.** `from orthosec import guard` (Python) / `@orthosec/guard` (Node) wraps LLM calls, blocking injection and scanning output at call time. One wrapper.
+- **Inline gateway.** `orthosec proxy --upstream https://api.openai.com --mode block`, then point your app's base URL at it (`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`). No app code changes — live prompts/responses are inspected at the wire.
 
-All phases speak the same taxonomy (OWASP LLM + MITRE ATLAS), so dashboards, gates, and reports built on the static scanner keep working as you add runtime coverage.
+All modes speak the same taxonomy (OWASP LLM + MITRE ATLAS), so dashboards, gates, and reports built on the static scanner keep working across static, SDK, and gateway coverage.
 
 ## What OrthoSec looks for (framework-agnostic)
 

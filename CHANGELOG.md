@@ -2,6 +2,16 @@
 
 All notable changes to OrthoSec are documented here. Versions follow semver.
 
+## [0.6.0]
+
+### Added
+- **Runtime gateway** (`orthosec proxy`) — inline stdlib proxy between app and provider.
+  `block` refuses injected requests before they reach the model; `monitor` logs them.
+  Responses scanned for leaks / payloads. Provider-agnostic (OpenAI + Anthropic),
+  `X-OrthoSec-*-Risk` headers, JSON audit log. Verified with a forward/block round-trip test.
+- **Distribution** — PyPI packaging polished (classifiers, project URLs, `py.typed`);
+  npm package `@orthosec/guard`; `PUBLISHING.md` with the publish commands.
+
 ## [0.5.0]
 
 ### Added
