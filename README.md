@@ -151,19 +151,38 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 | `output-handling` | LLM05 | LLM output flowing unsanitized into eval/shell/SQL/HTML sinks |
 | `tool-exposure` | LLM06 | Over-privileged agent tools (shell, file, HTTP, SQL) with no confirmation gate |
 | `rag-trust` | LLM08 | Untrusted web/upload content ingested into a retrieval corpus without provenance |
+| `unbounded-consumption` | LLM10 | LLM calls with no output cap; unbounded agent loops (denial-of-wallet) |
 
 Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern.
 
 Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@register`, done. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Runtime guard (SDK)
+
+Static scanning finds risk before deploy; the runtime guard catches it at call time — in any Python AI app, any framework. Zero dependencies.
+
+```python
+from orthosec import guard, scan_prompt
+
+@guard(mode="block", on_risk=lambda r: log.warning(r.risks))
+def call_llm(prompt: str) -> str:
+    ...  # your OpenAI / Anthropic / LangChain call
+
+# or inspect directly
+if not scan_prompt(user_input).ok:
+    reject()
+```
+
+`mode="monitor"` reports via `on_risk` and never raises; `mode="block"` raises `PromptInjectionError` on an injection hit before the call. Output is scanned for credential leaks and executable payloads. A runtime tripwire — pair it with the static scanner and least-privilege tools.
 
 ## Roadmap
 
 - **v0.1 — Static scanner** — point it at any repo, zero runtime coupling.
 - **v0.2 — Multi-profile + provider-agnostic intel** — engineer/appsec/ciso/product views, 6 detectors, Anthropic + Azure Foundry backends, Docker, `.env`.
 - **v0.3 — Integration + visual report** — `.orthosec.yml`, GitHub Action, self-contained HTML report.
-- **v0.4 — Remediation agents** *(now)* — per-finding fix agents; manual plans + opt-in LLM auto-fix; interactive remediation UI in the report.
-- **v0.5 — Runtime proxy** — inline gateway that catches live prompt injection / data leakage.
-- **Backlog** — SDK middleware, unbounded-consumption (LLM10) detector, PDF export, richer compliance packs, published GHCR image + release.
+- **v0.4 — Remediation agents** — per-finding fix agents; manual plans + opt-in LLM auto-fix; remediation UI in the report.
+- **v0.5 — Runtime guard + LLM10 + release** *(now)* — `@guard` SDK, unbounded-consumption detector, richer compliance packs (ISO 27001 / NIST CSF), GHCR image + tagged releases.
+- **Backlog** — inline runtime proxy/gateway, JS/TS runtime SDK, PDF export, GitHub Marketplace listing, more language detectors.
 
 ## Architecture
 

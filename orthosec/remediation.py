@@ -81,6 +81,17 @@ AGENTS: dict[str, RemediationAgent] = {
             "Never pass model output unsanitized into shell/SQL/file sinks.",
         ],
     ),
+    "unbounded-consumption": RemediationAgent(
+        id="rate-limiter",
+        name="Rate Limiter Agent",
+        summary="Bounds token spend and loop depth to stop denial-of-wallet / DoS.",
+        auto_available=True,
+        steps=[
+            "Set max_tokens and a request timeout on every model call.",
+            "Bound agent loops with max iterations/steps and a wall-clock deadline.",
+            "Enforce per-user token budgets and rate limits; fail closed at the cap.",
+        ],
+    ),
     "rag-trust": RemediationAgent(
         id="provenance",
         name="Provenance Agent",

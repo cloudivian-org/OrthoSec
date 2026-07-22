@@ -51,3 +51,10 @@ def index_web_docs(vectorstore, urls):
     for url in urls:
         page = requests.get(url).text
         vectorstore.add_texts([page])  # attacker-controlled page becomes "trusted" context
+
+
+# LLM10 / Unbounded consumption: no output cap + unbounded agent loop = denial-of-wallet.
+def agent_loop(client, task):
+    while True:
+        reply = client.messages.create(model="m", messages=[{"role": "user", "content": task}])
+        task = reply.content

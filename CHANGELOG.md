@@ -1,0 +1,47 @@
+# Changelog
+
+All notable changes to OrthoSec are documented here. Versions follow semver.
+
+## [0.5.0]
+
+### Added
+- **Runtime SDK guard** (`orthosec.sdk`) — `@guard` decorator and `scan_prompt()` /
+  `scan_output()` to catch prompt-injection and unsafe-output patterns at call time,
+  in any Python AI app. The runtime integration path, framework-agnostic.
+- **LLM10 detector** (`unbounded-consumption`) — flags LLM calls with no output cap,
+  unbounded ret/agent loops, and missing timeouts (denial-of-wallet / DoS).
+- **Richer compliance packs** — expanded EU AI Act articles plus ISO/IEC 27001 Annex A
+  and NIST CSF 2.0 control mappings.
+- **GHCR release pipeline** — tagged releases publish `ghcr.io/cloudivian-org/orthosec`.
+
+## [0.4.0]
+
+### Added
+- **Remediation agents** (`orthosec.remediation`) — each finding routes to a specialized
+  fix agent with a deterministic plan; opt-in LLM auto-fix (`orthosec remediate --auto`)
+  applies a minimal patch with a `.orig` backup. Rotation/provenance stay manual.
+- **Formatted HTML report** — executive briefing renders markdown → HTML; per-finding
+  remediation agents; select findings to build a `remediate` command.
+
+## [0.3.0]
+
+### Added
+- **Visual HTML report** (`--html`) — self-contained, theme-aware, profile toggle.
+- **Integration surface** — `.orthosec.yml` project config, GitHub Action, `INTEGRATION.md`,
+  scanner `exclude` support.
+
+## [0.2.0]
+
+### Added
+- **Audience profiles** (`--profile engineer|appsec|ciso|product`).
+- **Detectors** — `output-handling` (LLM05), `rag-trust` (LLM08).
+- **Provider-agnostic intel** — Anthropic API + Azure AI Foundry, auto-selected.
+- Zero-dep `.env` loader; Dockerfile.
+
+## [0.1.0]
+
+### Added
+- Deterministic scanner: `prompt-hardening` (LLM01/07), `secrets` (LLM02),
+  `unsafe-model-load` (LLM03/04), `tool-exposure` (LLM06).
+- OWASP LLM Top-10 + MITRE ATLAS taxonomy; posture score; compliance + business-risk
+  intel; grounded LLM executive briefing; console/JSON/SARIF output.

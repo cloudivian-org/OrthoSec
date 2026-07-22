@@ -35,9 +35,11 @@ ATLAS = {
 # Compliance controls the intel layer maps findings onto. Framework -> {control: desc}.
 COMPLIANCE = {
     "EU_AI_ACT": {
-        "Art.15": "Accuracy, robustness and cybersecurity of high-risk AI systems",
         "Art.9": "Risk management system",
         "Art.10": "Data and data governance",
+        "Art.12": "Record-keeping and logging",
+        "Art.14": "Human oversight",
+        "Art.15": "Accuracy, robustness and cybersecurity of high-risk AI systems",
     },
     "NIST_AI_RMF": {
         "MANAGE-2.1": "Resources to manage AI risks are allocated",
@@ -45,28 +47,46 @@ COMPLIANCE = {
         "MEASURE-2.7": "AI system security and resilience are evaluated",
     },
     "ISO_42001": {
-        "A.8.2": "AI system impact assessment",
         "A.6.2.4": "AI system verification and validation",
+        "A.8.2": "AI system impact assessment",
+    },
+    "ISO_27001": {
+        "A.8.24": "Use of cryptography / secrets management",
+        "A.8.25": "Secure development life cycle",
+        "A.8.28": "Secure coding",
+        "A.5.23": "Information security for use of cloud/AI services",
+    },
+    "NIST_CSF": {
+        "PR.DS": "Data security (protect)",
+        "PR.PS": "Platform security / secure configuration (protect)",
+        "DE.CM": "Continuous monitoring (detect)",
+        "ID.RA": "Risk assessment (identify)",
     },
     "SOC2": {
         "CC6.1": "Logical access security",
         "CC7.1": "Detection of security events",
+        "CC8.1": "Change management",
     },
 }
 
 # Which compliance controls a given OWASP LLM category implicates. Used by the
 # deterministic compliance mapper so exec output cites controls without an LLM.
 OWASP_TO_COMPLIANCE = {
-    "LLM01": [("EU_AI_ACT", "Art.15"), ("NIST_AI_RMF", "MEASURE-2.7"), ("ISO_42001", "A.6.2.4")],
-    "LLM02": [("EU_AI_ACT", "Art.10"), ("SOC2", "CC6.1"), ("NIST_AI_RMF", "MAP-5.1")],
-    "LLM03": [("EU_AI_ACT", "Art.15"), ("ISO_42001", "A.8.2"), ("NIST_AI_RMF", "MANAGE-2.1")],
-    "LLM04": [("EU_AI_ACT", "Art.10"), ("NIST_AI_RMF", "MAP-5.1")],
-    "LLM05": [("EU_AI_ACT", "Art.15"), ("SOC2", "CC7.1")],
-    "LLM06": [("EU_AI_ACT", "Art.9"), ("NIST_AI_RMF", "MANAGE-2.1"), ("ISO_42001", "A.8.2")],
-    "LLM07": [("SOC2", "CC6.1"), ("NIST_AI_RMF", "MEASURE-2.7")],
-    "LLM08": [("EU_AI_ACT", "Art.10"), ("ISO_42001", "A.6.2.4")],
-    "LLM09": [("NIST_AI_RMF", "MAP-5.1")],
-    "LLM10": [("EU_AI_ACT", "Art.15"), ("SOC2", "CC7.1")],
+    "LLM01": [("EU_AI_ACT", "Art.15"), ("EU_AI_ACT", "Art.14"), ("NIST_AI_RMF", "MEASURE-2.7"),
+              ("ISO_42001", "A.6.2.4"), ("ISO_27001", "A.8.28"), ("NIST_CSF", "PR.PS")],
+    "LLM02": [("EU_AI_ACT", "Art.10"), ("SOC2", "CC6.1"), ("NIST_AI_RMF", "MAP-5.1"),
+              ("ISO_27001", "A.8.24"), ("NIST_CSF", "PR.DS")],
+    "LLM03": [("EU_AI_ACT", "Art.15"), ("ISO_42001", "A.8.2"), ("NIST_AI_RMF", "MANAGE-2.1"),
+              ("ISO_27001", "A.8.25"), ("SOC2", "CC8.1"), ("NIST_CSF", "ID.RA")],
+    "LLM04": [("EU_AI_ACT", "Art.10"), ("NIST_AI_RMF", "MAP-5.1"), ("NIST_CSF", "PR.DS")],
+    "LLM05": [("EU_AI_ACT", "Art.15"), ("SOC2", "CC7.1"), ("ISO_27001", "A.8.28"), ("NIST_CSF", "PR.PS")],
+    "LLM06": [("EU_AI_ACT", "Art.9"), ("EU_AI_ACT", "Art.14"), ("NIST_AI_RMF", "MANAGE-2.1"),
+              ("ISO_42001", "A.8.2"), ("NIST_CSF", "PR.PS")],
+    "LLM07": [("SOC2", "CC6.1"), ("NIST_AI_RMF", "MEASURE-2.7"), ("ISO_27001", "A.8.24")],
+    "LLM08": [("EU_AI_ACT", "Art.10"), ("ISO_42001", "A.6.2.4"), ("NIST_CSF", "PR.DS")],
+    "LLM09": [("NIST_AI_RMF", "MAP-5.1"), ("EU_AI_ACT", "Art.14")],
+    "LLM10": [("EU_AI_ACT", "Art.15"), ("EU_AI_ACT", "Art.12"), ("SOC2", "CC7.1"),
+              ("NIST_CSF", "DE.CM"), ("ISO_27001", "A.5.23")],
 }
 
 
