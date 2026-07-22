@@ -39,20 +39,43 @@ A scanner that cries wolf on those gets uninstalled.
   must stay ≥ 95% and FP must be 0, so a detector change that regresses quality
   fails the build.
 
+## Adversarial set — evasions & FP stress
+
+`python benchmark/run.py --adversarial` runs a second corpus of code that *tries*
+to beat the detectors: obfuscated attacks that should still be caught, and safe
+code crafted to trip a false positive. Current state (7 cases):
+
+| Probe | Expected | Result |
+|---|---|---|
+| Secret split across `"sk-proj-" + "..."` | LLM02 | ✓ caught (hardened) |
+| Injection via `.format()` not `+` | LLM01 | ✓ caught |
+| JS model output → `innerHTML` (XSS) | LLM05 | ✓ caught |
+| `torch.load(map_location=...)` no `weights_only` | LLM03 | ✓ caught |
+| `subprocess` in a plain build script (not a tool) | none | ✓ no false positive |
+| Injection phrase used as documentation/data | none | ✓ no false positive |
+| Tool sink >15 lines from the tool marker | LLM06 | ○ **known miss** |
+
+The split-secret evasion was found by this set and fixed (rule `ORTHO-SECRET-002`).
+`tests/test_benchmark.py` guards it plus every other adversarial case against
+regression.
+
 ## Honest limitations
 
-This is a **seed corpus authored alongside the detectors**, so 100% reflects
-internal consistency, not real-world coverage — treat it as a floor and a
-regression guard, not a market claim. Known evasion classes OrthoSec does **not**
-yet catch (static, single-file, pattern-based):
+This is a **seed corpus authored alongside the detectors**, so 100% on the core
+set reflects internal consistency, not real-world coverage — treat it as a floor
+and a regression guard, not a market claim. Known gaps OrthoSec does **not** yet
+catch (static, single-file, pattern-based):
 
-- **Obfuscation** — a secret split across concatenation (`"sk-" + rest`), base64,
-  or env-indirection that reassembles at runtime.
+- **Intra-function distance** — a dangerous tool sink far from its registration
+  marker (the `known-miss` above). A precise fix needs AST/dataflow, not a wider
+  window (which would add false positives).
 - **Cross-file dataflow** — a dangerous sink and its LLM-output source in
   different modules.
+- **Deep obfuscation** — base64, env-indirection, or multi-step reassembly.
 - **Semantic-only injection** — malicious instructions with no lexical marker.
 - **Languages beyond Python/JS/TS.**
 
 These are the roadmap. **Adversarial cases are the most valuable contribution** —
-add a file under `cases/` that OrthoSec gets wrong, label it in `manifest.json`,
-and open a PR. A benchmark is only as honest as its hardest cases.
+add a file under `adversarial/` that OrthoSec gets wrong, label it in
+`manifest_adversarial.json` (`known_miss: true` if it's a documented gap), and
+open a PR. A benchmark is only as honest as its hardest cases.

@@ -23,9 +23,9 @@ MIN_PRECISION = 0.95
 MIN_RECALL = 0.95
 
 
-def run_benchmark(base: str | Path | None = None) -> dict:
+def run_benchmark(base: str | Path | None = None, manifest_name: str = "manifest.json") -> dict:
     base = Path(base) if base else Path(__file__).resolve().parent
-    manifest = json.loads((base / "manifest.json").read_text())
+    manifest = json.loads((base / manifest_name).read_text())
     scanner = Scanner()
 
     tp = {c: 0 for c in CATEGORIES}
@@ -72,6 +72,27 @@ def _rel(expect: set, fired: set) -> bool:
     return expect == (fired & set(CATEGORIES))
 
 
+def run_adversarial(base: str | Path | None = None) -> list[dict]:
+    """Run the adversarial evasion/FP-stress set. Cases flagged known_miss are
+    documented current limitations (not counted as failures)."""
+    base = Path(base) if base else Path(__file__).resolve().parent
+    path = base / "manifest_adversarial.json"
+    if not path.is_file():
+        return []
+    manifest = json.loads(path.read_text())
+    scanner = Scanner()
+    out = []
+    for case in manifest["cases"]:
+        expect = set(case["expect"])
+        fired = {f.owasp_llm for f in scanner.scan(base / case["file"]).findings}
+        ok = _rel(expect, fired)
+        known = bool(case.get("known_miss"))
+        status = "caught" if ok else ("known-miss" if known else "REGRESSION")
+        out.append({"file": case["file"], "expect": sorted(expect),
+                    "fired": sorted(fired), "known_miss": known, "ok": ok, "status": status})
+    return out
+
+
 def _fmt(x: float) -> str:
     return f"{x * 100:5.1f}%"
 
@@ -96,6 +117,19 @@ def main(argv=None) -> int:
         print("\n  Misclassified:")
         for c in bad:
             print(f"    {c['file']}: expected {c['expect']}, fired {c['fired']}")
+
+    if "--adversarial" in argv:
+        adv = run_adversarial()
+        print("\n  Adversarial set (evasion + FP stress):")
+        for c in adv:
+            mark = {"caught": "✓", "known-miss": "○", "REGRESSION": "✗"}[c["status"]]
+            print(f"    {mark} {c['file'].split('/')[-1]:26} expect {c['expect']} fired {c['fired']} — {c['status']}")
+        regressions = [c for c in adv if c["status"] == "REGRESSION"]
+        caught = sum(1 for c in adv if c["status"] == "caught")
+        print(f"    {caught}/{len(adv)} handled, {len(adv) - caught} documented known-miss")
+        if regressions and "--check" in argv:
+            print("\nFAIL: adversarial regression")
+            return 1
 
     if "--check" in argv:
         if o["precision"] < MIN_PRECISION or o["recall"] < MIN_RECALL:

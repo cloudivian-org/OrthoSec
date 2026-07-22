@@ -32,6 +32,18 @@ class TestBenchmark(unittest.TestCase):
         o = self.res["overall"]
         self.assertEqual(o["fn"], 0, msg="a vulnerable case went undetected")
 
+    def test_no_adversarial_regression(self):
+        adv = bench.run_adversarial(ROOT / "benchmark")
+        regressions = [c for c in adv if c["status"] == "REGRESSION"]
+        self.assertEqual(regressions, [], msg=f"adversarial regression: {regressions}")
+
+    def test_split_secret_evasion_caught(self):
+        # The concatenated-credential evasion must stay caught (ORTHO-SECRET-002).
+        from orthosec.core.scanner import Scanner
+        fired = {f.owasp_llm for f in
+                 Scanner().scan(ROOT / "benchmark/adversarial/adv_secret_concat.py").findings}
+        self.assertIn("LLM02", fired)
+
 
 if __name__ == "__main__":
     unittest.main()

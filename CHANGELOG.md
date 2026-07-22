@@ -2,6 +2,18 @@
 
 All notable changes to OrthoSec are documented here. Versions follow semver.
 
+## [Unreleased]
+
+### Added
+- **Adversarial benchmark set** (`benchmark/adversarial/`, `--adversarial`) — evasion
+  and false-positive-stress cases; `known_miss` flags documented gaps. Guarded by
+  `tests/test_benchmark.py` against regression.
+
+### Fixed
+- **Secrets detector** now catches a provider key split across string concatenation
+  (`"sk-proj-" + "..."`), a common single-literal-regex evasion (rule `ORTHO-SECRET-002`).
+  Found by the adversarial set. Core benchmark stays 100% / 0 FP.
+
 ## [0.6.0]
 
 ### Added

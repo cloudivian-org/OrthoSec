@@ -1,0 +1,12 @@
+{
+  "description": "Adversarial set — evasions that try to slip past the detectors, and safe code crafted to trip false positives. `known_miss: true` marks a documented current limitation (needs dataflow/AST, on the roadmap), not counted as a failure. Everything else must be handled correctly and is enforced by tests/test_benchmark.py.",
+  "cases": [
+    {"file": "adversarial/adv_secret_concat.py", "expect": ["LLM02"]},
+    {"file": "adversarial/adv_prompt_format.py", "expect": ["LLM01"]},
+    {"file": "adversarial/adv_output_innerhtml.js", "expect": ["LLM05"]},
+    {"file": "adversarial/adv_load_maplocation.py", "expect": ["LLM03"]},
+    {"file": "adversarial/adv_subprocess_no_tool.py", "expect": []},
+    {"file": "adversarial/adv_injection_as_data.py", "expect": []},
+    {"file": "adversarial/adv_tool_far_sink.py", "expect": ["LLM06"], "known_miss": true}
+  ]
+}

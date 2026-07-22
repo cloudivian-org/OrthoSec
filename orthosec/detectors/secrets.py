@@ -29,6 +29,10 @@ _PATTERNS = {
 # Obvious placeholders we should not flag as real leaks.
 _PLACEHOLDER = re.compile(r"(?i)(your|example|placeholder|dummy|xxx|\.\.\.|<[^>]+>|changeme|test)")
 
+# A provider key prefix inside a string literal adjacent to concatenation — the
+# classic "split the key to dodge a single-literal regex" evasion.
+_SPLIT_KEY = re.compile(r"""['"]sk-(?:ant|proj)-[A-Za-z0-9_-]*['"]\s*\+|\+\s*['"]sk-(?:ant|proj)-""")
+
 
 @register
 class SecretsDetector:
@@ -42,6 +46,23 @@ class SecretsDetector:
             if not text:
                 continue
             for lineno, line in enumerate(text.splitlines(), start=1):
+                if _SPLIT_KEY.search(line) and not _PLACEHOLDER.search(line):
+                    yield Finding(
+                        detector=self.id,
+                        rule_id="ORTHO-SECRET-002",
+                        title="Provider key assembled via string concatenation (possible split secret)",
+                        severity=Severity.HIGH,
+                        owasp_llm="LLM02",
+                        atlas=["AML.T0055"],
+                        file=ctx.rel(path),
+                        line=lineno,
+                        evidence=line.strip()[:120],
+                        remediation=(
+                            "A credential split across concatenation is still a hardcoded secret. "
+                            "Rotate it and load from an env var / secrets manager."
+                        ),
+                        confidence=0.75,
+                    )
                 for kind, pat in _PATTERNS.items():
                     m = pat.search(line)
                     if not m:
