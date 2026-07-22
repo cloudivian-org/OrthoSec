@@ -1,9 +1,13 @@
 """Detect improper handling of LLM output flowing into dangerous sinks.
 
 OWASP LLM05 (Improper Output Handling).
-When model output is passed unsanitized into eval/exec, a shell, raw SQL, or
-rendered as HTML, a successful prompt injection escalates into RCE, SQLi, or XSS
+When model output is passed unsanitized into eval/exec, a shell, raw SQL, or a
+template/HTML sink, a successful prompt injection escalates into RCE, SQLi, or XSS
 in the *downstream* system — the model becomes a confused deputy.
+
+Python uses AST taint tracking: model output is followed through reassignments
+and attribute chains, and a finding fires only when the sink's actual argument is
+tainted (not merely when an output-named variable sits nearby). JS/TS uses regex.
 """
 from __future__ import annotations
 
@@ -14,24 +18,24 @@ from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
 from orthosec.detectors._signals import mitigation_present, strip_comments
+from orthosec.analysis.pyast import safe_parse, output_taint_sinks
 
-# Variable names that commonly hold raw model output.
+_REMEDIATION = (
+    "Treat model output as untrusted input to the downstream system. Validate "
+    "against a schema, escape/parameterize before the sink, and never eval/exec "
+    "or string-concatenate it into SQL/HTML/shell."
+)
+
+# --- regex path (JS/TS) -----------------------------------------------------
 _LLM_OUTPUT = re.compile(
     r"(?i)\b(\w*(?:llm|model|completion|response|answer|reply|generated|assistant)\w*"
-    r"|message\.content|choices\[0\]|resp\.content|output_text)\b"
-)
-# Dangerous sinks that must not receive unsanitized model output.
+    r"|message\.content|choices\[0\]|resp\.content|output_text)\b")
 _SINKS = {
     "code execution (eval/exec)": re.compile(r"(?i)\b(eval|exec)\s*\("),
-    "shell execution": re.compile(r"(?i)\b(os\.system|subprocess\.(run|call|Popen)|shell\s*=\s*True)\b"),
-    "raw SQL": re.compile(r"(?i)\b(execute|executemany|cursor\.execute|\.raw)\s*\("),
-    "HTML injection (XSS)": re.compile(r"(?i)(innerHTML|dangerouslySetInnerHTML|render_template_string|\|\s*safe\b)"),
-    "template render": re.compile(r"(?i)\b(Template|render_template_string)\s*\("),
+    "shell execution": re.compile(r"(?i)\b(child_process|execSync|spawn\()"),
+    "HTML injection (XSS)": re.compile(r"(?i)(innerHTML|dangerouslySetInnerHTML)"),
 }
-# Signals the output was validated/escaped before the sink.
-_SANITIZED = re.compile(
-    r"(?i)(sanitiz|escape|bleach|validate|allowlist|whitelist|parameteriz|json\.loads|pydantic|schema)"
-)
+_SANITIZED = re.compile(r"(?i)(sanitiz|escape|bleach|validate|allowlist|whitelist|JSON\.parse)")
 
 
 @register
@@ -42,39 +46,57 @@ class OutputHandlingDetector:
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
         for path in ctx.files:
-            if path.suffix.lower() not in {".py", ".js", ".ts", ".tsx", ".jsx"}:
-                continue
+            suffix = path.suffix.lower()
             text = ctx.read(path)
             if not text:
                 continue
-            # Behavior detector: match on code only — a sink or output var named in a
-            # comment is not a real dataflow. (Secrets detection still scans comments.)
-            lines = strip_comments(text).splitlines()
-            raw_lines = text.splitlines()
-            for lineno, line in enumerate(lines, start=1):
-                for sink_name, pat in _SINKS.items():
-                    if not pat.search(line):
-                        continue
-                    # Model output on the same line, or defined within ~5 lines above.
-                    window = "\n".join(lines[max(0, lineno - 6):lineno + 1])
-                    if not _LLM_OUTPUT.search(window):
-                        continue
-                    if mitigation_present(window, _SANITIZED):
-                        continue  # validated/escaped in code (not merely named in a comment)
-                    yield Finding(
-                        detector=self.id,
-                        rule_id="ORTHO-OUTPUT-001",
-                        title=f"LLM output flows into {sink_name} without sanitization",
-                        severity=Severity.HIGH,
-                        owasp_llm="LLM05",
-                        atlas=["AML.T0051"],
-                        file=ctx.rel(path),
-                        line=lineno,
-                        evidence=raw_lines[lineno - 1].strip()[:200],
-                        remediation=(
-                            "Treat model output as untrusted input to the downstream system. "
-                            "Validate against a schema, escape/parameterize before the sink, and "
-                            "never eval/exec or string-concatenate it into SQL/HTML/shell."
-                        ),
-                        confidence=0.6,
-                    )
+            if suffix == ".py":
+                yield from self._scan_python(ctx, path, text)
+            elif suffix in {".js", ".ts", ".tsx", ".jsx"}:
+                yield from self._scan_regex(ctx, path, text)
+
+    def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
+        tree = safe_parse(text)
+        if tree is None:
+            return
+        lines = text.splitlines()
+        for s in output_taint_sinks(tree, lines):
+            yield Finding(
+                detector=self.id,
+                rule_id="ORTHO-OUTPUT-001",
+                title=f"LLM output flows into {s.capability} without sanitization",
+                severity=Severity.HIGH,
+                owasp_llm="LLM05",
+                atlas=["AML.T0051"],
+                file=ctx.rel(path),
+                line=s.line,
+                evidence=s.snippet,
+                remediation=_REMEDIATION,
+                confidence=0.75,
+            )
+
+    def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
+        lines = strip_comments(text).splitlines()
+        raw_lines = text.splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            for sink_name, pat in _SINKS.items():
+                if not pat.search(line):
+                    continue
+                window = "\n".join(lines[max(0, lineno - 6):lineno + 1])
+                if not _LLM_OUTPUT.search(window):
+                    continue
+                if mitigation_present(window, _SANITIZED):
+                    continue
+                yield Finding(
+                    detector=self.id,
+                    rule_id="ORTHO-OUTPUT-001",
+                    title=f"LLM output flows into {sink_name} without sanitization",
+                    severity=Severity.HIGH,
+                    owasp_llm="LLM05",
+                    atlas=["AML.T0051"],
+                    file=ctx.rel(path),
+                    line=lineno,
+                    evidence=raw_lines[lineno - 1].strip()[:200],
+                    remediation=_REMEDIATION,
+                    confidence=0.6,
+                )

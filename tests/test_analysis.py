@@ -2,7 +2,8 @@
 import unittest
 
 from orthosec.analysis.pyast import (safe_parse, find_tool_functions,
-                                     dangerous_sinks, has_confirmation)
+                                     dangerous_sinks, has_confirmation,
+                                     output_taint_sinks)
 from orthosec.core.scanner import Scanner
 
 
@@ -46,6 +47,31 @@ class TestPyAst(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         findings = Scanner().scan(root / "benchmark/adversarial/adv_tool_far_sink.py").findings
         self.assertTrue(any(f.owasp_llm == "LLM06" and f.severity.name == "CRITICAL" for f in findings))
+
+
+class TestOutputTaint(unittest.TestCase):
+    def test_taint_through_reassignment_and_distance(self):
+        src = ("def h(client, q):\n"
+               "    resp = client.messages.create(model='m', max_tokens=9, messages=[])\n"
+               "    a = resp.content\n"
+               "    b = a\n"
+               "    c = 'x ' + b\n"
+               "    import os\n"
+               "    os.system(c)\n")
+        sinks = output_taint_sinks(safe_parse(src), src.splitlines())
+        self.assertTrue(any("shell" in s.capability for s in sinks))
+
+    def test_non_llm_arg_not_tainted(self):
+        # eval on a non-model value must not be flagged as LLM output handling.
+        src = "def f(config_expr):\n    return eval(config_expr)\n"
+        self.assertEqual(output_taint_sinks(safe_parse(src), src.splitlines()), [])
+
+    def test_sanitized_output_not_flagged(self):
+        src = ("def r(model_output):\n"
+               "    safe = escape(model_output)\n"
+               "    return render_template_string(safe)\n")
+        # escape() cleans the taint before the template sink.
+        self.assertEqual(output_taint_sinks(safe_parse(src), src.splitlines()), [])
 
 
 if __name__ == "__main__":

@@ -8,10 +8,13 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 - **AST dataflow analysis for Python** (`orthosec/analysis/`) — resolves which
   functions are model-invokable tools (decorator, `func=`/`fn=` ref, or tool-def
   dict) and finds dangerous sinks inside them at any line distance, with a
-  confirmation-gate check. Replaces the line-proximity heuristic for Python;
-  JS/TS keeps the regex path.
+  confirmation-gate check.
+- **AST taint tracking for LLM05** — follows model output through reassignments
+  and attribute chains into eval/exec/shell/SQL/template sinks, firing only when
+  the sink's *actual argument* is tainted (fewer false positives than proximity;
+  catches sinks at any distance). Replaces the Python regex path; JS/TS keeps regex.
 - **Adversarial benchmark set** (`benchmark/adversarial/`, `--adversarial`) — evasion
-  and false-positive-stress cases. Now 7/7 handled, 0 known-miss. Guarded by
+  and false-positive-stress cases. Now 9/9 handled, 0 known-miss. Guarded by
   `tests/test_benchmark.py` + `tests/test_analysis.py`.
 
 ### Fixed

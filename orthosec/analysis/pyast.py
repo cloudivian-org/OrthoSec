@@ -7,6 +7,7 @@ dict) and finds dangerous calls inside them at any line distance.
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 
 # Decorator names (last segment) that expose a function as a model tool.
@@ -173,3 +174,127 @@ def safe_parse(source: str):
         return ast.parse(source)
     except (SyntaxError, ValueError):
         return None
+
+
+# --- LLM05 taint analysis: model output -> dangerous sink -------------------
+
+# Variable/param names that carry model output (seed taint even without a call).
+_OUTPUT_NAME = re.compile(
+    r"(?i)(\bllm|model|completion|response|\banswer|reply|generated|assistant|"
+    r"\boutput|\bresp\b|choices)")
+# Calls that produce model output.
+_LLM_CALL_METHODS = {"create", "generate", "complete", "acreate", "chat",
+                     "invoke", "ainvoke", "predict", "apredict"}
+# Calls that neutralize taint (validate / escape / parse to structured data).
+_SANITIZERS = {"loads", "load", "escape", "clean", "sanitize", "validate",
+               "parse", "model_validate", "quote", "quote_plus"}
+# Dangerous sinks for model output (a subset of tool sinks — the injection-relevant ones).
+_TAINT_SINK_BUILTINS = {"eval": "code execution (eval/exec)", "exec": "code execution (eval/exec)"}
+_TAINT_SINK_METHODS = {
+    ("os", "system"): "shell execution",
+    ("subprocess", "run"): "shell execution",
+    ("subprocess", "call"): "shell execution",
+    ("subprocess", "Popen"): "shell execution",
+    ("subprocess", "check_output"): "shell execution",
+}
+_SQL_SINKS = {"execute", "executemany", "executescript", "raw"}
+_TEMPLATE_SINKS = {"render_template_string", "Template"}
+
+
+def _is_llm_call(call: ast.Call) -> bool:
+    _, meth = _chain(call.func)
+    if isinstance(call.func, ast.Name) and call.func.id in _LLM_CALL_METHODS:
+        return True
+    return meth in _LLM_CALL_METHODS
+
+
+def _refs_taint(expr: ast.AST, tainted: set[str]) -> bool:
+    for node in ast.walk(expr):
+        if isinstance(node, ast.Name) and node.id in tainted:
+            return True
+    return False
+
+
+def _expr_tainted(expr: ast.AST, tainted: set[str]) -> bool:
+    # A top-level sanitizer call cleans the value.
+    if isinstance(expr, ast.Call):
+        _, meth = _chain(expr.func)
+        if meth in _SANITIZERS:
+            return False
+        if _is_llm_call(expr):
+            return True
+    for node in ast.walk(expr):
+        if isinstance(node, ast.Call) and _is_llm_call(node):
+            return True
+        if isinstance(node, ast.Name) and node.id in tainted:
+            return True
+    return False
+
+
+def _assigned_names(target: ast.AST) -> list[str]:
+    out = []
+    for node in ast.walk(target):
+        if isinstance(node, ast.Name):
+            out.append(node.id)
+    return out
+
+
+def tainted_vars(scope: ast.AST) -> set[str]:
+    """Names carrying model output within a scope (name-seeded + call-seeded, fixpoint)."""
+    tainted: set[str] = set()
+    for node in ast.walk(scope):
+        if isinstance(node, ast.arg) and _OUTPUT_NAME.search(node.arg):
+            tainted.add(node.arg)
+        if isinstance(node, ast.Name) and isinstance(getattr(node, "ctx", None), ast.Store) \
+                and _OUTPUT_NAME.search(node.id):
+            tainted.add(node.id)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign) and _expr_tainted(node.value, tainted):
+                for t in node.targets:
+                    for nm in _assigned_names(t):
+                        if nm not in tainted:
+                            tainted.add(nm)
+                            changed = True
+    return tainted
+
+
+def _taint_sink_capability(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Name):
+        if call.func.id in _TAINT_SINK_BUILTINS:
+            return _TAINT_SINK_BUILTINS[call.func.id]
+        if call.func.id in _TEMPLATE_SINKS:
+            return "template/HTML injection"
+    obj, meth = _chain(call.func)
+    if (obj, meth) in _TAINT_SINK_METHODS:
+        return _TAINT_SINK_METHODS[(obj, meth)]
+    if meth in _SQL_SINKS:
+        return "raw SQL execution"
+    if meth in _TEMPLATE_SINKS:
+        return "template/HTML injection"
+    for kw in call.keywords:
+        if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+            return "shell execution"
+    return None
+
+
+def output_taint_sinks(scope: ast.AST, source_lines: list[str]) -> list[Sink]:
+    """Dangerous sinks whose argument carries tainted model output."""
+    tainted = tainted_vars(scope)
+    if not tainted:
+        return []
+    sinks: list[Sink] = []
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Call):
+            continue
+        cap = _taint_sink_capability(node)
+        if not cap:
+            continue
+        args = list(node.args) + [kw.value for kw in node.keywords]
+        if any(_refs_taint(a, tainted) for a in args):
+            line = getattr(node, "lineno", 0)
+            snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+            sinks.append(Sink(cap, line, snippet))
+    return sinks

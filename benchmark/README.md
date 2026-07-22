@@ -43,7 +43,7 @@ A scanner that cries wolf on those gets uninstalled.
 
 `python benchmark/run.py --adversarial` runs a second corpus of code that *tries*
 to beat the detectors: obfuscated attacks that should still be caught, and safe
-code crafted to trip a false positive. Current state (7 cases):
+code crafted to trip a false positive. Current state (9 cases):
 
 | Probe | Expected | Result |
 |---|---|---|
@@ -51,16 +51,18 @@ code crafted to trip a false positive. Current state (7 cases):
 | Injection via `.format()` not `+` | LLM01 | ✓ caught |
 | JS model output → `innerHTML` (XSS) | LLM05 | ✓ caught |
 | `torch.load(map_location=...)` no `weights_only` | LLM03 | ✓ caught |
+| Tool sink far from the tool marker | LLM06 | ✓ caught (AST tool dataflow) |
+| Model output → 4 reassignments + concat → shell | LLM05 | ✓ caught (AST taint) |
 | `subprocess` in a plain build script (not a tool) | none | ✓ no false positive |
 | Injection phrase used as documentation/data | none | ✓ no false positive |
-| Tool sink far from the tool marker | LLM06 | ✓ caught (AST dataflow) |
+| `eval()` on a config value (not model output) | none | ✓ no false positive |
 
-**7/7 handled, 0 known-miss.** Two gaps this set exposed are now fixed:
-the split-secret evasion (rule `ORTHO-SECRET-002`) and the far-sink tool
-(Python AST resolves which functions are model-invokable tools and finds
-dangerous sinks inside them at any distance — see `orthosec/analysis/pyast.py`).
-`tests/test_benchmark.py` and `tests/test_analysis.py` guard every case against
-regression.
+**9/9 handled, 0 known-miss.** Every gap this set exposed is now fixed:
+the split-secret evasion (`ORTHO-SECRET-002`), the far-sink tool, and — via Python
+AST taint tracking — model output followed through reassignments/attribute chains
+into a sink at any distance, firing only when the sink's *actual argument* is
+tainted (see `orthosec/analysis/pyast.py`). `tests/test_benchmark.py` and
+`tests/test_analysis.py` guard every case against regression.
 
 ## Honest limitations
 

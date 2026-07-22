@@ -164,7 +164,7 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 | `rag-trust` | LLM08 | Untrusted web/upload content ingested into a retrieval corpus without provenance |
 | `unbounded-consumption` | LLM10 | LLM calls with no output cap; unbounded agent loops (denial-of-wallet) |
 
-Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern. Python targets get **AST dataflow** (`orthosec/analysis/`): tool-exposure resolves which functions the model can actually invoke and finds dangerous sinks inside them at any distance, not by line-proximity.
+Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern. Python targets get **AST dataflow** (`orthosec/analysis/`): tool-exposure resolves which functions the model can actually invoke and finds dangerous sinks inside them at any distance; output-handling **taint-tracks** model output through reassignments and attribute chains into a sink, firing only when the sink's actual argument is tainted (not by line-proximity).
 
 Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@register`, done. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
