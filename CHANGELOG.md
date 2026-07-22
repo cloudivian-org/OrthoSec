@@ -11,6 +11,9 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   `X-OrthoSec-*-Risk` headers, JSON audit log. Verified with a forward/block round-trip test.
 - **Distribution** — PyPI packaging polished (classifiers, project URLs, `py.typed`);
   npm package `@orthosec/guard`; `PUBLISHING.md` with the publish commands.
+- **Detection-efficacy benchmark** (`benchmark/`) — 30 labeled cases (vulnerable +
+  safe look-alikes); harness reports precision/recall/F1 per detector (currently
+  100%/100%, zero FP). `tests/test_benchmark.py` gates quality at ≥95% / 0 FP.
 
 ## [0.5.0]
 

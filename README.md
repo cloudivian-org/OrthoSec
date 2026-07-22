@@ -205,6 +205,16 @@ orthosec proxy --upstream https://api.openai.com --mode block
 
 Every request/response flows through inline: injected prompts are refused (`block`) or logged (`monitor`) before reaching the provider, and responses are scanned for credential leaks / executable payloads. Provider-agnostic (OpenAI + Anthropic message shapes), stdlib-only, adds `X-OrthoSec-*-Risk` headers and a JSON audit log.
 
+## Detection efficacy
+
+Accuracy is measured, not asserted. A labeled corpus of vulnerable samples **and safe look-alikes** (mitigated code that resembles a vulnerability) drives a precision/recall benchmark — run `python benchmark/run.py`:
+
+| | Precision | Recall | F1 |
+|---|---|---|---|
+| All 7 detectors, 30 cases | 100% | 100% | 100% |
+
+Zero false positives on the safe look-alikes is the headline number — a scanner that cries wolf gets uninstalled. `tests/test_benchmark.py` enforces this as a **regression gate** (precision/recall ≥ 95%, FP = 0), so detection quality can't silently degrade. Methodology and honest limitations (obfuscation, cross-file dataflow, non-Python langs) are in [benchmark/README.md](benchmark/README.md). Adversarial cases welcome.
+
 ## Roadmap
 
 - **v0.1 — Static scanner** — point it at any repo, zero runtime coupling.
