@@ -11,6 +11,7 @@
     {"file": "adversarial/adv_output_reassign.py", "expect": ["LLM05"]},
     {"file": "adversarial/adv_eval_non_llm.py", "expect": []},
     {"file": "adversarial/adv_prompt_reassign.py", "expect": ["LLM01"]},
-    {"file": "adversarial/adv_prompt_no_user.py", "expect": []}
+    {"file": "adversarial/adv_prompt_no_user.py", "expect": []},
+    {"file": "adversarial/adv_output_helper.py", "expect": ["LLM05"]}
   ]
 }

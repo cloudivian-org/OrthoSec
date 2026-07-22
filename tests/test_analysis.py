@@ -3,7 +3,8 @@ import unittest
 
 from orthosec.analysis.pyast import (safe_parse, find_tool_functions,
                                      dangerous_sinks, has_confirmation,
-                                     output_taint_sinks, injection_sinks)
+                                     output_taint_sinks, injection_sinks,
+                                     interprocedural_output_sinks)
 from orthosec.core.scanner import Scanner
 
 
@@ -94,6 +95,26 @@ class TestInjectionTaint(unittest.TestCase):
                "    system_prompt = 'You are helpful. v' + str(app_version)\n"
                "    return [{'role': 'system', 'content': system_prompt}]\n")
         self.assertEqual(injection_sinks(safe_parse(src), src.splitlines()), [])
+
+
+class TestInterprocedural(unittest.TestCase):
+    def test_output_to_helper_sink(self):
+        src = ("def run_tool(cmd):\n"
+               "    import os\n"
+               "    os.system(cmd)\n"
+               "def handle(client, q):\n"
+               "    resp = client.messages.create(model='m', max_tokens=9, messages=[])\n"
+               "    answer = resp.content\n"
+               "    run_tool(answer)\n")
+        self.assertTrue(interprocedural_output_sinks(safe_parse(src), src.splitlines()))
+
+    def test_helper_sink_untainted_arg_not_flagged(self):
+        src = ("def run_tool(cmd):\n"
+               "    import os\n"
+               "    os.system(cmd)\n"
+               "def handle(config):\n"
+               "    run_tool(config)\n")
+        self.assertEqual(interprocedural_output_sinks(safe_parse(src), src.splitlines()), [])
 
 
 if __name__ == "__main__":

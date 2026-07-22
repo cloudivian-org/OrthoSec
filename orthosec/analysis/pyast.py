@@ -239,15 +239,21 @@ def _assigned_names(target: ast.AST) -> list[str]:
     return out
 
 
-def tainted_vars(scope: ast.AST) -> set[str]:
-    """Names carrying model output within a scope (name-seeded + call-seeded, fixpoint)."""
-    tainted: set[str] = set()
+def _seed_output(scope: ast.AST) -> set[str]:
+    """Names seeded as model output by naming convention (params + stores)."""
+    seed: set[str] = set()
     for node in ast.walk(scope):
         if isinstance(node, ast.arg) and _OUTPUT_NAME.search(node.arg):
-            tainted.add(node.arg)
+            seed.add(node.arg)
         if isinstance(node, ast.Name) and isinstance(getattr(node, "ctx", None), ast.Store) \
                 and _OUTPUT_NAME.search(node.id):
-            tainted.add(node.id)
+            seed.add(node.id)
+    return seed
+
+
+def _propagate(scope: ast.AST, seed: set[str]) -> set[str]:
+    """Propagate a taint seed through assignments to a fixpoint (sanitizers clear)."""
+    tainted = set(seed)
     changed = True
     while changed:
         changed = False
@@ -259,6 +265,28 @@ def tainted_vars(scope: ast.AST) -> set[str]:
                             tainted.add(nm)
                             changed = True
     return tainted
+
+
+def _sinks_with_taint(scope: ast.AST, tainted: set[str], source_lines: list[str],
+                      label: str = "") -> list[Sink]:
+    sinks: list[Sink] = []
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Call):
+            continue
+        cap = _taint_sink_capability(node)
+        if not cap:
+            continue
+        args = list(node.args) + [kw.value for kw in node.keywords]
+        if any(_refs_taint(a, tainted) for a in args):
+            line = getattr(node, "lineno", 0)
+            snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+            sinks.append(Sink(cap + label, line, snippet))
+    return sinks
+
+
+def tainted_vars(scope: ast.AST) -> set[str]:
+    """Names carrying model output within a scope (name-seeded + call-seeded, fixpoint)."""
+    return _propagate(scope, _seed_output(scope))
 
 
 def _taint_sink_capability(call: ast.Call) -> str | None:
@@ -281,23 +309,67 @@ def _taint_sink_capability(call: ast.Call) -> str | None:
 
 
 def output_taint_sinks(scope: ast.AST, source_lines: list[str]) -> list[Sink]:
-    """Dangerous sinks whose argument carries tainted model output."""
+    """Dangerous sinks (in this scope) whose argument carries tainted model output."""
     tainted = tainted_vars(scope)
-    if not tainted:
+    return _sinks_with_taint(scope, tainted, source_lines) if tainted else []
+
+
+def _function_defs(tree: ast.AST) -> dict[str, ast.AST]:
+    return {n.name: n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
+def _dangerous_params(fn: ast.AST, source_lines: list[str]) -> tuple[set[str], list[str]]:
+    """Params of `fn` that, if tainted, reach a dangerous sink inside `fn`."""
+    params = [a.arg for a in fn.args.args] + [a.arg for a in getattr(fn.args, "kwonlyargs", [])]
+    dangerous = set()
+    for p in params:
+        if _sinks_with_taint(fn, _propagate(fn, {p}), source_lines):
+            dangerous.add(p)
+    return dangerous, params
+
+
+def interprocedural_output_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
+    """Model output passed as an argument to a helper function that sinks that
+    parameter — an intra-file interprocedural dataflow the single-scope pass misses."""
+    funcs = _function_defs(tree)
+    summaries = {}
+    for name, fn in funcs.items():
+        dangerous, params = _dangerous_params(fn, source_lines)
+        if dangerous:
+            summaries[name] = (dangerous, params)
+    if not summaries:
         return []
-    sinks: list[Sink] = []
-    for node in ast.walk(scope):
-        if not isinstance(node, ast.Call):
+
+    scopes = [n for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] or [tree]
+    out: list[Sink] = []
+    seen: set[int] = set()
+    for scope in scopes:
+        tainted = tainted_vars(scope)
+        if not tainted:
             continue
-        cap = _taint_sink_capability(node)
-        if not cap:
-            continue
-        args = list(node.args) + [kw.value for kw in node.keywords]
-        if any(_refs_taint(a, tainted) for a in args):
-            line = getattr(node, "lineno", 0)
-            snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
-            sinks.append(Sink(cap, line, snippet))
-    return sinks
+        for node in ast.walk(scope):
+            if not isinstance(node, ast.Call):
+                continue
+            fname = _seg(node.func)
+            if fname not in summaries:
+                continue
+            dangerous, params = summaries[fname]
+            hit = False
+            for i, arg in enumerate(node.args):
+                if i < len(params) and params[i] in dangerous and _refs_taint(arg, tainted):
+                    hit = True
+            for kw in node.keywords:
+                if kw.arg in dangerous and _refs_taint(kw.value, tainted):
+                    hit = True
+            if hit and node.lineno not in seen:
+                line = node.lineno
+                snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+                out.append(Sink(f"a helper that passes it to a dangerous sink (via {fname}())",
+                                line, snippet))
+                seen.add(line)
+    return out
 
 
 # --- LLM01 taint analysis: untrusted input -> system prompt -----------------

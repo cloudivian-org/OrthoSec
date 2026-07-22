@@ -18,7 +18,8 @@ from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
 from orthosec.detectors._signals import mitigation_present, strip_comments
-from orthosec.analysis.pyast import safe_parse, output_taint_sinks
+from orthosec.analysis.pyast import (safe_parse, output_taint_sinks,
+                                     interprocedural_output_sinks)
 
 _REMEDIATION = (
     "Treat model output as untrusted input to the downstream system. Validate "
@@ -60,7 +61,11 @@ class OutputHandlingDetector:
         if tree is None:
             return
         lines = text.splitlines()
-        for s in output_taint_sinks(tree, lines):
+        seen_lines: set[int] = set()
+        for s in output_taint_sinks(tree, lines) + interprocedural_output_sinks(tree, lines):
+            if s.line in seen_lines:
+                continue
+            seen_lines.add(s.line)
             yield Finding(
                 detector=self.id,
                 rule_id="ORTHO-OUTPUT-001",
@@ -72,7 +77,7 @@ class OutputHandlingDetector:
                 line=s.line,
                 evidence=s.snippet,
                 remediation=_REMEDIATION,
-                confidence=0.75,
+                confidence=0.7,
             )
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
