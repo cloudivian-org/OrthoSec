@@ -53,10 +53,13 @@ code crafted to trip a false positive. Current state (7 cases):
 | `torch.load(map_location=...)` no `weights_only` | LLM03 | ✓ caught |
 | `subprocess` in a plain build script (not a tool) | none | ✓ no false positive |
 | Injection phrase used as documentation/data | none | ✓ no false positive |
-| Tool sink >15 lines from the tool marker | LLM06 | ○ **known miss** |
+| Tool sink far from the tool marker | LLM06 | ✓ caught (AST dataflow) |
 
-The split-secret evasion was found by this set and fixed (rule `ORTHO-SECRET-002`).
-`tests/test_benchmark.py` guards it plus every other adversarial case against
+**7/7 handled, 0 known-miss.** Two gaps this set exposed are now fixed:
+the split-secret evasion (rule `ORTHO-SECRET-002`) and the far-sink tool
+(Python AST resolves which functions are model-invokable tools and finds
+dangerous sinks inside them at any distance — see `orthosec/analysis/pyast.py`).
+`tests/test_benchmark.py` and `tests/test_analysis.py` guard every case against
 regression.
 
 ## Honest limitations
@@ -66,11 +69,8 @@ set reflects internal consistency, not real-world coverage — treat it as a flo
 and a regression guard, not a market claim. Known gaps OrthoSec does **not** yet
 catch (static, single-file, pattern-based):
 
-- **Intra-function distance** — a dangerous tool sink far from its registration
-  marker (the `known-miss` above). A precise fix needs AST/dataflow, not a wider
-  window (which would add false positives).
 - **Cross-file dataflow** — a dangerous sink and its LLM-output source in
-  different modules.
+  different modules (single-file AST only).
 - **Deep obfuscation** — base64, env-indirection, or multi-step reassembly.
 - **Semantic-only injection** — malicious instructions with no lexical marker.
 - **Languages beyond Python/JS/TS.**

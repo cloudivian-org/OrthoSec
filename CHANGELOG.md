@@ -5,14 +5,22 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 ## [Unreleased]
 
 ### Added
+- **AST dataflow analysis for Python** (`orthosec/analysis/`) — resolves which
+  functions are model-invokable tools (decorator, `func=`/`fn=` ref, or tool-def
+  dict) and finds dangerous sinks inside them at any line distance, with a
+  confirmation-gate check. Replaces the line-proximity heuristic for Python;
+  JS/TS keeps the regex path.
 - **Adversarial benchmark set** (`benchmark/adversarial/`, `--adversarial`) — evasion
-  and false-positive-stress cases; `known_miss` flags documented gaps. Guarded by
-  `tests/test_benchmark.py` against regression.
+  and false-positive-stress cases. Now 7/7 handled, 0 known-miss. Guarded by
+  `tests/test_benchmark.py` + `tests/test_analysis.py`.
 
 ### Fixed
+- **Excessive-agency (LLM06)** now catches a dangerous sink far from its tool
+  registration (was a documented miss) — via the new AST analysis, with higher
+  precision than the old window heuristic.
 - **Secrets detector** now catches a provider key split across string concatenation
   (`"sk-proj-" + "..."`), a common single-literal-regex evasion (rule `ORTHO-SECRET-002`).
-  Found by the adversarial set. Core benchmark stays 100% / 0 FP.
+  Both fixes were found by the adversarial set. Core benchmark stays 100% / 0 FP.
 
 ## [0.6.0]
 
