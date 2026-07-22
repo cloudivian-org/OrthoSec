@@ -43,25 +43,29 @@ A scanner that cries wolf on those gets uninstalled.
 
 `python benchmark/run.py --adversarial` runs a second corpus of code that *tries*
 to beat the detectors: obfuscated attacks that should still be caught, and safe
-code crafted to trip a false positive. Current state (9 cases):
+code crafted to trip a false positive. Current state (11 cases):
 
 | Probe | Expected | Result |
 |---|---|---|
 | Secret split across `"sk-proj-" + "..."` | LLM02 | ✓ caught (hardened) |
 | Injection via `.format()` not `+` | LLM01 | ✓ caught |
+| Untrusted input renamed → system prompt (far) | LLM01 | ✓ caught (AST taint) |
 | JS model output → `innerHTML` (XSS) | LLM05 | ✓ caught |
+| Model output → 4 reassignments + concat → shell | LLM05 | ✓ caught (AST taint) |
 | `torch.load(map_location=...)` no `weights_only` | LLM03 | ✓ caught |
 | Tool sink far from the tool marker | LLM06 | ✓ caught (AST tool dataflow) |
-| Model output → 4 reassignments + concat → shell | LLM05 | ✓ caught (AST taint) |
 | `subprocess` in a plain build script (not a tool) | none | ✓ no false positive |
 | Injection phrase used as documentation/data | none | ✓ no false positive |
 | `eval()` on a config value (not model output) | none | ✓ no false positive |
+| System prompt from a static/config value (no user input) | none | ✓ no false positive |
 
-**9/9 handled, 0 known-miss.** Every gap this set exposed is now fixed:
-the split-secret evasion (`ORTHO-SECRET-002`), the far-sink tool, and — via Python
-AST taint tracking — model output followed through reassignments/attribute chains
-into a sink at any distance, firing only when the sink's *actual argument* is
-tainted (see `orthosec/analysis/pyast.py`). `tests/test_benchmark.py` and
+**11/11 handled, 0 known-miss.** Every gap this set exposed is fixed. The three
+dataflow-shaped detectors (LLM01 prompt injection, LLM05 output handling, LLM06
+excessive agency) run Python **AST taint/dataflow** — untrusted input traced into
+a system prompt, model output traced into a sink, and dangerous sinks resolved
+inside model-invokable tools — each firing only when the *actual* data reaches the
+*actual* sink, at any distance, respecting trust-boundary/sanitizer mitigations
+(see `orthosec/analysis/pyast.py`). `tests/test_benchmark.py` and
 `tests/test_analysis.py` guard every case against regression.
 
 ## Honest limitations

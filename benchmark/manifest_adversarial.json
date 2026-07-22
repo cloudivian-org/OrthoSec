@@ -9,6 +9,8 @@
     {"file": "adversarial/adv_injection_as_data.py", "expect": []},
     {"file": "adversarial/adv_tool_far_sink.py", "expect": ["LLM06"]},
     {"file": "adversarial/adv_output_reassign.py", "expect": ["LLM05"]},
-    {"file": "adversarial/adv_eval_non_llm.py", "expect": []}
+    {"file": "adversarial/adv_eval_non_llm.py", "expect": []},
+    {"file": "adversarial/adv_prompt_reassign.py", "expect": ["LLM01"]},
+    {"file": "adversarial/adv_prompt_no_user.py", "expect": []}
   ]
 }

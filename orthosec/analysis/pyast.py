@@ -298,3 +298,109 @@ def output_taint_sinks(scope: ast.AST, source_lines: list[str]) -> list[Sink]:
             snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
             sinks.append(Sink(cap, line, snippet))
     return sinks
+
+
+# --- LLM01 taint analysis: untrusted input -> system prompt -----------------
+
+# Param/var names that carry untrusted user-controlled input.
+_USER_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|request|\bprompt\b|\bmsg\b|"
+    r"payload|\bbody\b|user_input|user_query|user_message|user_content)")
+# Targets that name a system prompt.
+_SYS_PROMPT_TARGET = re.compile(
+    r"(?i)(system_prompt|system_message|system_instruction|sys_prompt|systemprompt|sys_msg)")
+# Trust-boundary / hardening language that mitigates injection.
+_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore any instructions|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|do not disclose|as data, not|do not obey)")
+
+
+def _expr_untrusted(expr: ast.AST, untrusted: set[str]) -> bool:
+    for node in ast.walk(expr):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "input":
+            return True
+        if isinstance(node, ast.Name) and (node.id in untrusted or node.id == "request"):
+            return True
+    return False
+
+
+def untrusted_vars(scope: ast.AST) -> set[str]:
+    """Names carrying untrusted input within a scope (name + call seeded, fixpoint)."""
+    untrusted: set[str] = set()
+    for node in ast.walk(scope):
+        if isinstance(node, ast.arg) and _USER_NAME.search(node.arg):
+            untrusted.add(node.arg)
+        if isinstance(node, ast.Name) and isinstance(getattr(node, "ctx", None), ast.Store) \
+                and _USER_NAME.search(node.id):
+            untrusted.add(node.id)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign) and _expr_untrusted(node.value, untrusted):
+                for t in node.targets:
+                    for nm in _assigned_names(t):
+                        if nm not in untrusted:
+                            untrusted.add(nm)
+                            changed = True
+    return untrusted
+
+
+def _has_hardening(scope: ast.AST) -> bool:
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and _HARDENING.search(node.value):
+            return True
+    return False
+
+
+def _dict_role_content(node: ast.Dict):
+    role, content = None, None
+    for k, v in zip(node.keys, node.values):
+        if isinstance(k, ast.Constant) and k.value == "role" and isinstance(v, ast.Constant):
+            role = v.value
+        if isinstance(k, ast.Constant) and k.value == "content":
+            content = v
+    return role, content
+
+
+def injection_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
+    """System-prompt constructions that embed untrusted input with no trust boundary."""
+    scopes = [n for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] or [tree]
+    out: list[Sink] = []
+    seen: set[int] = set()
+
+    def snip(line):
+        return source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+
+    for scope in scopes:
+        untrusted = untrusted_vars(scope)
+        if not untrusted or _has_hardening(scope):
+            continue
+        flagged_vars: set[str] = set()
+        # Assignment to a system-prompt-named var, from an expr carrying untrusted input.
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign):
+                names = [nm for t in node.targets for nm in _assigned_names(t)]
+                if any(_SYS_PROMPT_TARGET.search(nm) for nm in names) \
+                        and _refs_taint(node.value, untrusted):
+                    if node.lineno not in seen:
+                        out.append(Sink("untrusted input in system prompt (no trust boundary)",
+                                        node.lineno, snip(node.lineno)))
+                        seen.add(node.lineno)
+                    flagged_vars.update(names)
+        # role:system dict whose content carries untrusted input.
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Dict):
+                role, content = _dict_role_content(node)
+                if role != "system" or content is None:
+                    continue
+                if isinstance(content, ast.Name) and content.id in flagged_vars:
+                    continue
+                if _refs_taint(content, untrusted):
+                    line = getattr(content, "lineno", node.lineno)
+                    if line not in seen:
+                        out.append(Sink("untrusted input in system prompt (no trust boundary)",
+                                        line, snip(line)))
+                        seen.add(line)
+    return out

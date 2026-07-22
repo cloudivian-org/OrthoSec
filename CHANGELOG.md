@@ -13,8 +13,13 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   and attribute chains into eval/exec/shell/SQL/template sinks, firing only when
   the sink's *actual argument* is tainted (fewer false positives than proximity;
   catches sinks at any distance). Replaces the Python regex path; JS/TS keeps regex.
+- **AST taint tracking for LLM01** — traces untrusted input (user params, `input()`,
+  `request.*`) into a system-prompt construction, respecting trust-boundary language;
+  fires only when tainted data actually reaches the prompt. Python path; other file
+  types keep regex. Completes AST dataflow for all three dataflow-shaped detectors
+  (LLM01, LLM05, LLM06).
 - **Adversarial benchmark set** (`benchmark/adversarial/`, `--adversarial`) — evasion
-  and false-positive-stress cases. Now 9/9 handled, 0 known-miss. Guarded by
+  and false-positive-stress cases. Now 11/11 handled, 0 known-miss. Guarded by
   `tests/test_benchmark.py` + `tests/test_analysis.py`.
 
 ### Fixed
