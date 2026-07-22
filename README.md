@@ -222,8 +222,9 @@ Zero false positives on the safe look-alikes is the headline number — a scanne
 - **v0.3 — Integration + visual report** — `.orthosec.yml`, GitHub Action, self-contained HTML report.
 - **v0.4 — Remediation agents** — per-finding fix agents; manual plans + opt-in LLM auto-fix; remediation UI in the report.
 - **v0.5 — Runtime guard + LLM10 + release** — `@guard` SDK (Python + Node), unbounded-consumption detector, richer compliance packs (ISO 27001 / NIST CSF).
-- **v0.6 — Runtime gateway + distribution** *(now)* — inline `orthosec proxy` (block/monitor), pre-commit hook, PyPI + npm packaging ready.
-- **Backlog** — GitHub Marketplace listing, detection-efficacy benchmark, PDF export, more language detectors, managed dashboard.
+- **v0.6 — Runtime gateway + distribution** — inline `orthosec proxy` (block/monitor), pre-commit hook, published to PyPI (`pip install orthosec`), npm packaging ready.
+- **v0.7 — AST dataflow + measured accuracy** *(in `main`, unreleased)* — Python AST taint tracking for all three dataflow-shaped detectors (LLM01 untrusted-input→prompt, LLM05 output→sink, LLM06 sink-in-tool); detection-efficacy benchmark at 100% precision/recall with an 11-case adversarial set as a regression gate.
+- **Backlog** — cut 0.6.1 to ship the AST upgrades to PyPI; publish `@orthosec/guard` to npm; interprocedural + cross-file taint; JS/TS AST path; GitHub Marketplace listing; PDF report export; managed dashboard.
 
 ## Architecture
 
