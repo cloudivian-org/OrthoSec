@@ -55,7 +55,8 @@ class PromptHardeningDetector:
                 continue
             if suffix == ".py":
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".txt", ".md", ".prompt", ".yaml", ".yml", ".json"}:
+            elif suffix in {".js", ".ts", ".prompt", ".yaml", ".yml", ".json"}:
+                # .md/.txt excluded: docs/data files produce prompt-ish false positives.
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:

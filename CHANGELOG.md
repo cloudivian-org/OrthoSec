@@ -2,6 +2,20 @@
 
 All notable changes to OrthoSec are documented here. Versions follow semver.
 
+## [Unreleased]
+
+### Fixed (real-world validation hardening)
+Scanning AutoGPT, openai-cookbook, and anthropic-quickstarts (1,831 files, 0 crashes)
+surfaced and fixed five false-positive classes; findings dropped 257 -> 122 with the
+core benchmark still 100% / 0 FP. See `VALIDATION.md`. 13 new regression tests.
+- LLM10 rewritten AST-based: ignores mock assignments, string literals, and docstrings
+  that merely mention an LLM method (AutoGPT 117 -> 12).
+- rag-trust (LLM08) requires real vector-store context — no longer flags DB `upsert`.
+- SQL sink gated to a DB-ish receiver — no longer flags `block.execute(...)`.
+- Secrets in test/fixture/example paths reported at LOW severity, not CRITICAL.
+- output-handling: `innerHTML` only on write (not reads); injection scanning skips
+  `.md`/`.txt` documentation.
+
 ## [0.6.1]
 
 ### Added

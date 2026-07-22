@@ -31,6 +31,12 @@ _UNTRUSTED_SRC = re.compile(
 _TRUSTED = re.compile(
     r"(?i)(sanitiz|clean|allowlist|whitelist|verify|signature|provenance|trusted_source|validate)"
 )
+# The file must actually be about a vector store / retriever — otherwise a generic
+# `upsert`/`add_documents` (e.g. a database upsert) is not RAG ingestion.
+_VECTOR_CTX = re.compile(
+    r"(?i)(vector|embedding|\bembed\b|chroma|faiss|pinecone|weaviate|qdrant|milvus|"
+    r"retriever|vectorstore|langchain|llama_?index|semantic|rag\b)"
+)
 
 
 @register
@@ -44,7 +50,7 @@ class RagTrustDetector:
             if path.suffix.lower() not in {".py", ".js", ".ts"}:
                 continue
             text = ctx.read(path)
-            if not text or not _INGEST.search(text):
+            if not text or not _VECTOR_CTX.search(text) or not _INGEST.search(text):
                 continue
             lines = strip_comments(text).splitlines()  # behavior detector: code only
             raw_lines = text.splitlines()

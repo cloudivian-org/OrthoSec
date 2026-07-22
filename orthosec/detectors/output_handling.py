@@ -35,7 +35,8 @@ _LLM_OUTPUT = re.compile(
 _SINKS = {
     "code execution (eval/exec)": re.compile(r"(?i)\b(eval|exec)\s*\("),
     "shell execution": re.compile(r"(?i)\b(child_process|execSync|spawn\()"),
-    "HTML injection (XSS)": re.compile(r"(?i)(innerHTML|dangerouslySetInnerHTML)"),
+    # Require a write to innerHTML (assignment), not a read like `.innerHTML).toBe(...)`.
+    "HTML injection (XSS)": re.compile(r"(?i)(innerHTML\s*=|dangerouslySetInnerHTML)"),
 }
 _SANITIZED = re.compile(r"(?i)(sanitiz|escape|bleach|validate|allowlist|whitelist|JSON\.parse)")
 

@@ -140,8 +140,8 @@ def _classify_call(node: ast.Call) -> str | None:
     obj, meth = _chain(node.func)
     if (obj, meth) in _DANGEROUS_METHODS:
         return _DANGEROUS_METHODS[(obj, meth)]
-    # SQL execution on a cursor/connection-like object
-    if meth in _SQL_METHODS:
+    # SQL execution on a cursor/connection-like object (gated to avoid block.execute etc.)
+    if meth in _SQL_METHODS and _is_sql_sink(node, meth):
         return "raw SQL execution"
     # shell=True on any call
     for kw in node.keywords:
@@ -199,6 +199,18 @@ _TAINT_SINK_METHODS = {
 }
 _SQL_SINKS = {"execute", "executemany", "executescript", "raw"}
 _TEMPLATE_SINKS = {"render_template_string", "Template"}
+# `.execute()` is common on non-DB objects (blocks, futures, playwright). Only treat
+# a bare execute()/executemany() as SQL when the receiver looks database-ish.
+_DB_RECEIVER = re.compile(r"(?i)(cursor|conn|connection|\bdb\b|database|session|\bcur\b|sql|engine)")
+
+
+def _is_sql_sink(call: ast.Call, meth: str) -> bool:
+    if meth in ("executescript", "raw"):
+        return True
+    if meth in ("execute", "executemany"):
+        recv = _seg(call.func.value) if isinstance(call.func, ast.Attribute) else ""
+        return bool(_DB_RECEIVER.search(recv))
+    return False
 
 
 def _is_llm_call(call: ast.Call) -> bool:
@@ -304,7 +316,7 @@ def _taint_sink_capability(call: ast.Call) -> str | None:
     obj, meth = _chain(call.func)
     if (obj, meth) in _TAINT_SINK_METHODS:
         return _TAINT_SINK_METHODS[(obj, meth)]
-    if meth in _SQL_SINKS:
+    if meth in _SQL_SINKS and _is_sql_sink(call, meth):
         return "raw SQL execution"
     if meth in _TEMPLATE_SINKS:
         return "template/HTML injection"

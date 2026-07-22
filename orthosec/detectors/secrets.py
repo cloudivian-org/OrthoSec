@@ -28,6 +28,10 @@ _PATTERNS = {
 
 # Obvious placeholders we should not flag as real leaks.
 _PLACEHOLDER = re.compile(r"(?i)(your|example|placeholder|dummy|xxx|\.\.\.|<[^>]+>|changeme|test)")
+# Test / fixture / example paths — a "secret" here is usually a fake test value.
+_TEST_PATH = re.compile(
+    r"(?i)((^|/)(tests?|__tests__|fixtures?|mocks?|examples?|samples?|demos?)(/)|"
+    r"conftest|_test\.|\.test\.|(^|/)test_|\.spec\.)")
 
 # A provider key prefix inside a string literal adjacent to concatenation — the
 # classic "split the key to dodge a single-literal regex" evasion.
@@ -45,23 +49,26 @@ class SecretsDetector:
             text = ctx.read(path)
             if not text:
                 continue
+            rel = ctx.rel(path)
+            test_ctx = bool(_TEST_PATH.search(rel))
+            suffix = "  (test/example code — likely a fixture, verify)" if test_ctx else ""
             for lineno, line in enumerate(text.splitlines(), start=1):
                 if _SPLIT_KEY.search(line) and not _PLACEHOLDER.search(line):
                     yield Finding(
                         detector=self.id,
                         rule_id="ORTHO-SECRET-002",
-                        title="Provider key assembled via string concatenation (possible split secret)",
-                        severity=Severity.HIGH,
+                        title="Provider key assembled via string concatenation (possible split secret)" + suffix,
+                        severity=Severity.LOW if test_ctx else Severity.HIGH,
                         owasp_llm="LLM02",
                         atlas=["AML.T0055"],
-                        file=ctx.rel(path),
+                        file=rel,
                         line=lineno,
                         evidence=line.strip()[:120],
                         remediation=(
                             "A credential split across concatenation is still a hardcoded secret. "
                             "Rotate it and load from an env var / secrets manager."
                         ),
-                        confidence=0.75,
+                        confidence=0.5 if test_ctx else 0.75,
                     )
                 for kind, pat in _PATTERNS.items():
                     m = pat.search(line)
@@ -71,21 +78,25 @@ class SecretsDetector:
                     if _PLACEHOLDER.search(hit):
                         continue
                     generic = kind.startswith("Generic")
+                    if test_ctx:
+                        sev = Severity.LOW
+                    else:
+                        sev = Severity.MEDIUM if generic else Severity.CRITICAL
                     yield Finding(
                         detector=self.id,
                         rule_id="ORTHO-SECRET-001",
-                        title=f"{kind} committed in source",
-                        severity=Severity.MEDIUM if generic else Severity.CRITICAL,
+                        title=f"{kind} committed in source" + suffix,
+                        severity=sev,
                         owasp_llm="LLM02",
                         atlas=["AML.T0055"],
-                        file=ctx.rel(path),
+                        file=rel,
                         line=lineno,
                         evidence=_redact(hit),
                         remediation=(
                             "Remove the secret, rotate it immediately, and load from an "
                             "env var or secrets manager. Purge it from git history."
                         ),
-                        confidence=0.6 if generic else 0.9,
+                        confidence=(0.4 if test_ctx else (0.6 if generic else 0.9)),
                     )
 
 
