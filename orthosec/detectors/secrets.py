@@ -1,0 +1,75 @@
+"""Detect hardcoded model/provider credentials in an AI codebase.
+
+OWASP LLM02 (Sensitive Information Disclosure) / LLM03 (Supply Chain).
+Leaked provider keys are the single most common real-world AI incident: a key in
+git history = someone else billing your model + exfiltrating your prompts/data.
+"""
+from __future__ import annotations
+
+import re
+from typing import Iterable
+
+from orthosec.core.finding import Finding, Severity
+from orthosec.core.scanner import ScanContext
+from orthosec.detectors import register
+
+# name -> (compiled pattern, note). Patterns favor precision over recall.
+_PATTERNS = {
+    "OpenAI API key": re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
+    "Anthropic API key": re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
+    "AWS access key id": re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    "Google API key": re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    "HuggingFace token": re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),
+    "Slack token": re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
+    "Generic assigned secret": re.compile(
+        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"\s]{12,}['\"]"
+    ),
+}
+
+# Obvious placeholders we should not flag as real leaks.
+_PLACEHOLDER = re.compile(r"(?i)(your|example|placeholder|dummy|xxx|\.\.\.|<[^>]+>|changeme|test)")
+
+
+@register
+class SecretsDetector:
+    id = "secrets"
+    name = "Hardcoded credentials"
+    owasp_llm = "LLM02"
+
+    def scan(self, ctx: ScanContext) -> Iterable[Finding]:
+        for path in ctx.files:
+            text = ctx.read(path)
+            if not text:
+                continue
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                for kind, pat in _PATTERNS.items():
+                    m = pat.search(line)
+                    if not m:
+                        continue
+                    hit = m.group(0)
+                    if _PLACEHOLDER.search(hit):
+                        continue
+                    generic = kind.startswith("Generic")
+                    yield Finding(
+                        detector=self.id,
+                        rule_id="ORTHO-SECRET-001",
+                        title=f"{kind} committed in source",
+                        severity=Severity.MEDIUM if generic else Severity.CRITICAL,
+                        owasp_llm="LLM02",
+                        atlas=["AML.T0055"],
+                        file=ctx.rel(path),
+                        line=lineno,
+                        evidence=_redact(hit),
+                        remediation=(
+                            "Remove the secret, rotate it immediately, and load from an "
+                            "env var or secrets manager. Purge it from git history."
+                        ),
+                        confidence=0.6 if generic else 0.9,
+                    )
+
+
+def _redact(secret: str) -> str:
+    s = secret.strip()
+    if len(s) <= 8:
+        return s[0] + "***"
+    return f"{s[:4]}…{s[-4:]} (redacted)"

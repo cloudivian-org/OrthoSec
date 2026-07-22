@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orthosec"
+version = "0.1.0"
+description = "The AI Security Architect — technical AI risk analysis with executive business context. Open source."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "OrthoSec" }]
+keywords = ["ai-security", "llm-security", "ai-spm", "owasp-llm", "mitre-atlas", "ai-governance"]
+
+# Core scan + report path is STDLIB ONLY — installs and runs with zero deps.
+dependencies = []
+
+[project.optional-dependencies]
+# Executive narrative / free-form Q&A layer (grounded on deterministic findings).
+intel = ["anthropic>=0.40"]
+# Prettier console output; core falls back to plain text without it.
+pretty = ["rich>=13"]
+dev = ["pytest>=8", "anthropic>=0.40", "rich>=13"]
+
+[project.scripts]
+orthosec = "orthosec.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/orthosec/orthosec"
+
+[tool.setuptools.packages.find]
+include = ["orthosec*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
