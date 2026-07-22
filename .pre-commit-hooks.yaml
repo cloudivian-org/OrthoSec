@@ -1,0 +1,16 @@
+# OrthoSec as a pre-commit hook — CI-free AI-security gating on every commit.
+# Consumers add to their .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/cloudivian-org/OrthoSec
+#     rev: v0.5.0
+#     hooks:
+#       - id: orthosec
+#
+- id: orthosec
+  name: OrthoSec AI security scan
+  description: Scan for AI-specific security risk (OWASP LLM Top-10 + MITRE ATLAS)
+  entry: orthosec
+  args: ["scan", ".", "--no-exec", "--fail-on", "high"]
+  language: python
+  pass_filenames: false
+  always_run: true

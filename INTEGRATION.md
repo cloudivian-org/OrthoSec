@@ -58,7 +58,34 @@ docker run --rm -v "$PWD:/scan" ghcr.io/cloudivian-org/orthosec \
   scan /scan --fail-on high --sarif /scan/orthosec.sarif
 ```
 
-### 4. Programmatic API
+### 4. Pre-commit hook (no CI required)
+
+Gate AI-security risk on every commit, locally — nothing runs in the cloud:
+
+```yaml
+# .pre-commit-config.yaml
+- repo: https://github.com/cloudivian-org/OrthoSec
+  rev: v0.5.0
+  hooks:
+    - id: orthosec
+```
+
+`pre-commit install`, and every commit runs `orthosec scan . --fail-on high`. This is the recommended path when GitHub Actions isn't available.
+
+### 5. Runtime guard (Python + Node)
+
+Defend at LLM call time, framework-agnostic:
+
+```python
+from orthosec import guard, scan_prompt      # Python
+```
+```js
+import { guard, scanPrompt } from "@orthosec/guard";   // Node / TypeScript
+```
+
+`@guard(mode="block")` raises on a prompt-injection hit before the call; output is scanned for leaks. See [sdk/js](sdk/js) for the Node package.
+
+### 6. Programmatic API
 
 Embed OrthoSec in your own tooling, platform, or portal:
 
@@ -78,12 +105,12 @@ Outputs available: console, JSON (`--json`), SARIF (`--sarif`), self-contained H
 
 ## Runtime integration (roadmap — the contract)
 
-Phase 1 is static (pre-deploy). Two runtime modes are on the roadmap, and the integration contract is deliberately simple:
+Phase 1 is static (pre-deploy); the runtime guard (§5 above) ships today for Python and Node. Next:
 
-- **v0.3 — Proxy / gateway.** Point your app's LLM base URL at OrthoSec; it inspects live prompts/responses for injection and data leakage inline, emitting the same `Finding` objects. One config line (`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`).
-- **v0.4 — SDK middleware.** `from orthosec import guard` wraps LLM calls for per-call telemetry in Python/JS. One decorator.
+- **Shipped — SDK guard.** `from orthosec import guard` (Python) / `@orthosec/guard` (Node) wraps LLM calls, blocking injection and scanning output at call time. One wrapper.
+- **Next — Proxy / gateway.** Point your app's LLM base URL at OrthoSec; it inspects live prompts/responses inline and emits the same `Finding` objects. One config line (`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`).
 
-All three phases speak the same taxonomy (OWASP LLM + MITRE ATLAS) and emit the same `Finding` shape, so dashboards, gates, and reports built on Phase 1 keep working as you add runtime coverage.
+All phases speak the same taxonomy (OWASP LLM + MITRE ATLAS), so dashboards, gates, and reports built on the static scanner keep working as you add runtime coverage.
 
 ## What OrthoSec looks for (framework-agnostic)
 

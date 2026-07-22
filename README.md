@@ -128,8 +128,16 @@ OrthoSec matches behavioral patterns, not a specific framework — so it works o
 
 1. **CLI** — `python -m orthosec.cli scan .`
 2. **Project config** — drop [`.orthosec.yml`](.orthosec.example.yml) at your repo root (profile, `fail_on`, `exclude`).
-3. **GitHub Action** — [`.github/workflows/orthosec.yml`](.github/workflows/orthosec.yml); findings post inline on PRs via SARIF.
-4. **Python API** — `from orthosec import Scanner`.
+3. **Pre-commit hook** *(no CI needed)* — gate every commit locally:
+   ```yaml
+   # .pre-commit-config.yaml
+   - repo: https://github.com/cloudivian-org/OrthoSec
+     rev: v0.5.0
+     hooks: [{ id: orthosec }]
+   ```
+4. **Docker (any CI or local)** — `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan/orthosec.sarif --fail-on high`.
+5. **GitHub Action** — [`.github/workflows/orthosec.yml`](.github/workflows/orthosec.yml); findings post inline on PRs via SARIF. *(Requires GitHub Actions enabled for the org.)*
+6. **Python API / runtime guard** — `from orthosec import Scanner, guard`; Node via [`@orthosec/guard`](sdk/js).
 
 ```yaml
 # .github/workflows/orthosec.yml
@@ -174,6 +182,14 @@ if not scan_prompt(user_input).ok:
 ```
 
 `mode="monitor"` reports via `on_risk` and never raises; `mode="block"` raises `PromptInjectionError` on an injection hit before the call. Output is scanned for credential leaks and executable payloads. A runtime tripwire — pair it with the static scanner and least-privilege tools.
+
+**Node / TypeScript** apps get the same guard via [`@orthosec/guard`](sdk/js) (zero deps):
+
+```js
+import { guard, scanPrompt } from "@orthosec/guard";
+const chat = guard(async (prompt) => client.chat.completions.create(/* ... */),
+                   { mode: "block", onRisk: (r) => log.warn(r.risks) });
+```
 
 ## Roadmap
 

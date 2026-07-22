@@ -1,0 +1,26 @@
+{
+  "name": "@orthosec/guard",
+  "version": "0.1.0",
+  "description": "OrthoSec runtime guard — catch prompt injection and unsafe LLM output at call time in any Node AI app. Zero dependencies.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "files": ["index.js", "index.d.ts", "README.md"],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": ["ai-security", "llm-security", "prompt-injection", "guardrails", "owasp-llm"],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cloudivian-org/OrthoSec",
+    "directory": "sdk/js"
+  },
+  "engines": { "node": ">=18" }
+}
