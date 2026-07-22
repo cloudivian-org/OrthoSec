@@ -2,7 +2,7 @@
 
 All notable changes to OrthoSec are documented here. Versions follow semver.
 
-## [Unreleased]
+## [0.6.1]
 
 ### Added
 - **AST dataflow analysis for Python** (`orthosec/analysis/`) — resolves which
