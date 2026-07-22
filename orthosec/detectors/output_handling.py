@@ -20,6 +20,7 @@ from orthosec.detectors import register
 from orthosec.detectors._signals import mitigation_present, strip_comments
 from orthosec.analysis.pyast import (safe_parse, output_taint_sinks,
                                      interprocedural_output_sinks)
+from orthosec.analysis.project import cross_file_output_sinks
 
 _REMEDIATION = (
     "Treat model output as untrusted input to the downstream system. Validate "
@@ -62,7 +63,10 @@ class OutputHandlingDetector:
             return
         lines = text.splitlines()
         seen_lines: set[int] = set()
-        for s in output_taint_sinks(tree, lines) + interprocedural_output_sinks(tree, lines):
+        found = (output_taint_sinks(tree, lines)
+                 + interprocedural_output_sinks(tree, lines)
+                 + cross_file_output_sinks(ctx, path, tree, lines))
+        for s in found:
             if s.line in seen_lines:
                 continue
             seen_lines.add(s.line)

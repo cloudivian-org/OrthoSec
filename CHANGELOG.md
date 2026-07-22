@@ -23,6 +23,12 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   LLM06 a tool that delegates to a helper holding the dangerous sink (transitive
   capability reachability); LLM01 untrusted input passed to a helper that builds
   the system prompt. Each fires only when the real data reaches the real sink.
+- **Cross-module taint** (`orthosec/analysis/project.py`) — a project-wide index
+  resolves imports (`from mod import f`, `import mod` → `mod.f()`) and links a
+  tainted argument in one module to a dangerous parameter in another, for LLM01
+  (untrusted input → imported prompt builder) and LLM05 (model output → imported
+  sink helper). Built once per scan, memoized on the context. Guarded by
+  `tests/test_crossfile.py`.
 - **Adversarial benchmark set** (`benchmark/adversarial/`, `--adversarial`) — evasion
   and false-positive-stress cases. Now 14/14 handled, 0 known-miss. Guarded by
   `tests/test_benchmark.py` + `tests/test_analysis.py`.

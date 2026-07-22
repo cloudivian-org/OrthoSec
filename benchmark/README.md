@@ -81,11 +81,19 @@ set reflects internal consistency, not real-world coverage — treat it as a flo
 and a regression guard, not a market claim. Known gaps OrthoSec does **not** yet
 catch (static, single-file, pattern-based):
 
-- **Cross-file dataflow** — a dangerous sink and its LLM-output source in
-  different modules (single-file AST only).
+- **Cross-module for LLM06**, stem-collision import resolution, and re-export
+  chains (LLM01/LLM05 cross-module *is* handled — see above).
 - **Deep obfuscation** — base64, env-indirection, or multi-step reassembly.
 - **Semantic-only injection** — malicious instructions with no lexical marker.
 - **Languages beyond Python/JS/TS.**
+
+**Cross-module taint** (a sink and its source in *different* files) is now handled
+for LLM01/LLM05 — the project index resolves `from mod import f` / `import mod`
+and links a tainted argument in one module to a dangerous parameter in another
+(`orthosec/analysis/project.py`). Remaining cross-module gaps: LLM06 tool→sink
+across files, import resolution by filename stem only (collisions), and re-export
+chains. (The single-file benchmark above does not exercise this — see
+`tests/test_crossfile.py`.)
 
 These are the roadmap. **Adversarial cases are the most valuable contribution** —
 add a file under `adversarial/` that OrthoSec gets wrong, label it in

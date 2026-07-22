@@ -19,6 +19,7 @@ from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
 from orthosec.analysis.pyast import (safe_parse, injection_sinks,
                                      interprocedural_injection_sinks)
+from orthosec.analysis.project import cross_file_injection_sinks
 
 # System-prompt shape + unsanitized-concat + hardening (regex path for non-Python).
 _SYS_ASSIGN = re.compile(r"(?i)(system_prompt|system_message|system_instruction|SYSTEM_PROMPT)\s*[:=]")
@@ -64,7 +65,10 @@ class PromptHardeningDetector:
             return
         lines = text.splitlines()
         seen_lines: set[int] = set()
-        for s in injection_sinks(tree, lines) + interprocedural_injection_sinks(tree, lines):
+        found = (injection_sinks(tree, lines)
+                 + interprocedural_injection_sinks(tree, lines)
+                 + cross_file_injection_sinks(ctx, path, tree, lines))
+        for s in found:
             if s.line in seen_lines:
                 continue
             seen_lines.add(s.line)
