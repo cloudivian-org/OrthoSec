@@ -5,6 +5,15 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 ## [Unreleased]
 
 ### Added
+- **PR-native GitHub Action** — the bundled action is now a composite action that
+  `pip install`s OrthoSec from PyPI (no Docker build). On a pull request it scans only
+  the changed files (`--diff` vs the PR base SHA); on push it runs a full scan. Either
+  way it writes SARIF and the workflow uploads it to GitHub code scanning, so findings
+  surface inline on the PR and dedupe across runs via `partialFingerprints`. New action
+  inputs: `diff-ref`, `baseline`, `version`.
+- **HTML report polish** — the report now shows a stacked severity-distribution bar, an
+  OWASP LLM Top-10 coverage strip (each category colored by its worst finding, dimmed
+  when clean), and a Print / Save-as-PDF button (print-optimized styles).
 - **Full OWASP LLM Top-10 coverage** — added the last two dedicated detectors:
   - **LLM07 `prompt-leakage`** — a system prompt written to logs / stdout (AST dataflow
     for Python; `console.log` regex for JS). Returning the prompt to the LLM is not flagged.

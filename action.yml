@@ -1,5 +1,5 @@
 name: "OrthoSec AI Security Scan"
-description: "Scan any AI product for AI-specific security risk (OWASP LLM Top-10 + MITRE ATLAS) and post findings to the PR."
+description: "Scan any AI product for AI-specific security risk (OWASP LLM Top-10 + MITRE ATLAS). On PRs, scans only changed files and posts findings via SARIF."
 author: "OrthoSec"
 branding:
   icon: "shield"
@@ -22,17 +22,39 @@ inputs:
     description: "Path to write the SARIF report"
     required: false
     default: "orthosec.sarif"
+  diff-ref:
+    description: "If set, scan only files changed vs this git ref (e.g. a PR base SHA). Requires fetch-depth: 0."
+    required: false
+    default: ""
+  baseline:
+    description: "Path to an OrthoSec baseline file — suppress known findings, gate on new only"
+    required: false
+    default: ""
+  version:
+    description: "OrthoSec version to install (default: latest on PyPI)"
+    required: false
+    default: ""
 
 runs:
-  using: "docker"
-  image: "Dockerfile"
-  args:
-    - "scan"
-    - ${{ inputs.path }}
-    - "--profile"
-    - ${{ inputs.profile }}
-    - "--fail-on"
-    - ${{ inputs.fail-on }}
-    - "--sarif"
-    - ${{ inputs.sarif-file }}
-    - "--no-exec"
+  using: "composite"
+  steps:
+    - name: Install OrthoSec
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          python3 -m pip install --quiet "orthosec==${{ inputs.version }}"
+        else
+          python3 -m pip install --quiet orthosec
+        fi
+    - name: Scan
+      shell: bash
+      run: |
+        cmd=(orthosec scan "${{ inputs.path }}"
+             --profile "${{ inputs.profile }}"
+             --fail-on "${{ inputs.fail-on }}"
+             --sarif "${{ inputs.sarif-file }}"
+             --no-exec --no-report)
+        [ -n "${{ inputs.diff-ref }}" ] && cmd+=(--diff "${{ inputs.diff-ref }}")
+        [ -n "${{ inputs.baseline }}" ] && cmd+=(--baseline "${{ inputs.baseline }}")
+        echo "Running: ${cmd[*]}"
+        "${cmd[@]}"

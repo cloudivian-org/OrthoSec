@@ -31,6 +31,7 @@ def _data(result: ScanResult, exec_summary: str | None) -> dict:
         "exec_summary": exec_summary,
         "business_risk": business_risk(result.findings),
         "compliance": compliance_exposure(result.findings),
+        "owasp_names": {f"LLM{i:02d}": owasp_name(f"LLM{i:02d}") for i in range(1, 11)},
         "findings": [
             {
                 "rule_id": f.rule_id, "title": f.title, "severity": f.severity.name,
@@ -141,6 +142,18 @@ _TEMPLATE = r"""<!doctype html>
     background:var(--panel2); border:1px solid var(--line); font-size:13px; font-weight:600; }
   .chip .dot { width:9px; height:9px; border-radius:3px; }
   .chip .n { font-variant-numeric:tabular-nums; }
+  .sevbar { display:flex; height:9px; border-radius:6px; overflow:hidden; margin-top:14px; border:1px solid var(--line); background:var(--panel2); }
+  .sevbar span { display:block; min-width:2px; }
+  .owaspwrap { margin:2px 0 4px; }
+  .owasp { display:flex; gap:6px; flex-wrap:wrap; }
+  .ocat { font-size:11px; font-weight:750; letter-spacing:.02em; padding:4px 9px; border-radius:8px;
+    border:1px solid var(--line); background:var(--panel2); color:var(--muted); }
+  .ocat.hit { color:#fff; border-color:transparent; }
+  .ocat .oc-n { font-variant-numeric:tabular-nums; opacity:.85; margin-left:3px; }
+  .btnp { border:1px solid var(--line); background:var(--panel); color:var(--muted); font-size:12px;
+    font-weight:650; padding:6px 12px; border-radius:8px; cursor:pointer; }
+  .btnp:hover { color:var(--ink); border-color:var(--accent); }
+  @media print { .tabs, .btnp, .actionbar { display:none !important; } body { background:#fff; } .finding, .card, .fw, .exec, .summary { box-shadow:none; } }
 
   h2.section { font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
     margin:32px 0 12px; font-weight:800; }
@@ -232,7 +245,10 @@ _TEMPLATE = r"""<!doctype html>
       <div class="brand">Ortho<span>Sec</span> — AI Security Report</div>
       <div class="target mono">__ROOT__</div>
     </div>
-    <div class="sub" id="genstamp"></div>
+    <div style="display:flex; align-items:center; gap:12px">
+      <div class="sub" id="genstamp"></div>
+      <button class="btnp" onclick="window.print()">Print / PDF</button>
+    </div>
   </header>
 
   <div class="tabs" role="tablist" aria-label="Audience profile" id="tabs"></div>
@@ -248,9 +264,13 @@ _TEMPLATE = r"""<!doctype html>
     </div>
     <div>
       <div class="chips" id="sevChips"></div>
+      <div class="sevbar" id="sevbar" aria-hidden="true"></div>
       <div class="meta" id="posture-note" style="margin-top:12px"></div>
     </div>
   </section>
+
+  <div class="owaspwrap"><h2 class="section" style="margin:20px 0 10px">OWASP LLM Top-10 coverage</h2>
+    <div class="owasp" id="owaspstrip"></div></div>
 
   <div id="business"></div>
   <div id="compliance"></div>
@@ -344,6 +364,28 @@ function renderChips(){
     c.appendChild(el); }
   if(!any) c.innerHTML=`<span class="chip"><span class="dot" style="background:var(--good)"></span>No findings — clean scan</span>`;
 }
+function renderSevBar(){
+  const bar=document.getElementById("sevbar"); if(!bar) return; bar.innerHTML="";
+  const total=SEV_ORDER.reduce((a,s)=>a+(DATA.severity_counts[s]||0),0);
+  if(!total){ bar.innerHTML=`<span style="flex:1;background:var(--good)"></span>`; return; }
+  for(const sev of SEV_ORDER){ const n=DATA.severity_counts[sev]||0; if(!n) continue;
+    const s=document.createElement("span"); s.style.flex=String(n); s.style.background=SEV_COLOR[sev];
+    s.title=`${n} ${sev.toLowerCase()}`; bar.appendChild(s); }
+}
+const OWASP_IDS = ["LLM01","LLM02","LLM03","LLM04","LLM05","LLM06","LLM07","LLM08","LLM09","LLM10"];
+function renderOwasp(){
+  const w=document.getElementById("owaspstrip"); if(!w) return; w.innerHTML="";
+  const worst={}, cnt={};   // per-category worst severity index + count
+  for(const f of DATA.findings){ const id=f.owasp; if(!id) continue;
+    cnt[id]=(cnt[id]||0)+1; const si=SEV_ORDER.indexOf(f.severity);
+    if(!(id in worst) || si<worst[id]) worst[id]=si; }
+  for(const id of OWASP_IDS){ const el=document.createElement("span");
+    el.className="ocat"+(cnt[id]?" hit":""); el.title=DATA.owasp_names&&DATA.owasp_names[id]?DATA.owasp_names[id]:id;
+    if(cnt[id]){ const sev=SEV_ORDER[worst[id]]; el.style.background=SEV_COLOR[sev];
+      el.innerHTML=`${id}<span class="oc-n">${cnt[id]}</span>`; }
+    else el.textContent=id;
+    w.appendChild(el); }
+}
 function renderBusiness(p){
   const w=document.getElementById("business"); w.innerHTML="";
   if(!p.show_business) return; const br=DATA.business_risk; const d0=br.risk_drivers[0]||{};
@@ -421,7 +463,7 @@ function render(){
   const p=DATA.profiles[current];
   document.querySelectorAll(".tab").forEach((b,i)=>b.setAttribute("aria-selected", Object.keys(DATA.profiles)[i]===current));
   document.getElementById("audience").textContent="View for "+p.audience+".";
-  renderRing(); renderChips(); renderBusiness(p); renderCompliance(p); renderFindings(p);
+  renderRing(); renderChips(); renderSevBar(); renderOwasp(); renderBusiness(p); renderCompliance(p); renderFindings(p);
   const ew=document.getElementById("execWrap");
   if(DATA.exec_summary){ ew.style.display=""; document.getElementById("exec").innerHTML=mdToHtml(DATA.exec_summary); }
   else ew.style.display="none";

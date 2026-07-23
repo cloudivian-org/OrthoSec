@@ -1,5 +1,6 @@
 # Drop this into any AI product repo to gate PRs on AI-security risk.
-# Findings appear inline on the PR via GitHub code scanning (SARIF).
+# On a pull request: scans only the changed files (fast) and posts findings inline
+# via GitHub code scanning. On push to main: full scan. SARIF is uploaded either way.
 name: OrthoSec
 
 on:
@@ -16,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history so --diff can compare against the PR base
 
       - name: OrthoSec AI Security Scan
         uses: cloudivian-org/OrthoSec@main
@@ -24,9 +27,11 @@ jobs:
           profile: "appsec"
           fail-on: "high"
           sarif-file: "orthosec.sarif"
+          # On a PR, scan only what changed vs the base branch; on push, scan everything.
+          diff-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
 
       - name: Upload SARIF to code scanning
-        if: always()
+        if: always()   # upload findings even when the scan fails the gate
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "orthosec.sarif"
