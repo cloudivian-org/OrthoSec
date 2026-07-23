@@ -70,7 +70,7 @@ class UnboundedConsumptionDetector:
                 continue
             if suffix in {".py", ".ipynb"}:
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".tsx"}:
+            elif suffix in {".js", ".ts", ".tsx", ".jsx"}:
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
@@ -109,17 +109,31 @@ class UnboundedConsumptionDetector:
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
         raw = text.splitlines()
-        if path.suffix.lower() == ".js":
+        suffix = path.suffix.lower()
+
+        def _emit(ln, conf):
+            return Finding(
+                detector=self.id, rule_id="ORTHO-CONSUME-001",
+                title="LLM call without an output-token cap", severity=Severity.MEDIUM,
+                owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=ln,
+                evidence=_snip(raw, ln), remediation=_CAP_FIX, confidence=conf)
+
+        # TypeScript/JSX (and JS) AST via tree-sitter — primary path.
+        from orthosec.analysis import ts_ast
+        if ts_ast.available() and suffix in (".ts", ".tsx", ".jsx", ".js"):
+            hits = ts_ast.unbounded_findings(text, tsx=suffix in (".tsx", ".jsx", ".js"))
+            if hits is not None:
+                for ln in hits:
+                    yield _emit(ln, 0.68)
+                return
+
+        if suffix == ".js":
             from orthosec.analysis import js_ast
             if js_ast.available():
                 hits = js_ast.unbounded_findings(text)
                 if hits is not None:                 # parsed as JS — use AST, not regex
                     for ln in hits:
-                        yield Finding(
-                            detector=self.id, rule_id="ORTHO-CONSUME-001",
-                            title="LLM call without an output-token cap", severity=Severity.MEDIUM,
-                            owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=ln,
-                            evidence=_snip(raw, ln), remediation=_CAP_FIX, confidence=0.65)
+                        yield _emit(ln, 0.65)
                     return
         lines = strip_comments(text).splitlines()
         for lineno, line in enumerate(lines, start=1):

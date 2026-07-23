@@ -5,6 +5,13 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 ## [Unreleased]
 
 ### Added
+- **TypeScript / JSX AST analysis** (`orthosec[ts]`, tree-sitter) — `.ts`/`.tsx`/`.jsx`
+  (and `.js`) are parsed to a real syntax tree so LLM05 (model output → eval/`Function`/
+  shell/`innerHTML`/`dangerouslySetInnerHTML`/SQL) and LLM10 (uncapped completion) key on
+  actual call nodes and dataflow, not line proximity — a string or comment mentioning
+  `.innerHTML`/`.create()` no longer fires. Framework-aware (LangChain/LlamaIndex/OpenAI/
+  Anthropic call shapes, receiver-gated generic verbs). Falls back to regex with no crash
+  when the extra isn't installed. Closes the TypeScript coverage gap for LLM05/LLM10.
 - **AI dependency supply-chain audit** (`dependency-audit`, LLM03) — reads
   `requirements*.txt` and `package.json` (not just code) and flags AI/ML dependencies
   that are **unpinned** (non-reproducible resolve → a compromised release gets pulled)

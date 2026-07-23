@@ -88,19 +88,33 @@ class OutputHandlingDetector:
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
         raw_lines = text.splitlines()
-        if path.suffix.lower() == ".js":
+        suffix = path.suffix.lower()
+
+        def _emit(ln, cap, conf):
+            return Finding(
+                detector=self.id, rule_id="ORTHO-OUTPUT-001",
+                title=f"LLM output flows into {cap} without sanitization",
+                severity=Severity.HIGH, owasp_llm="LLM05", atlas=["AML.T0051"],
+                file=ctx.rel(path), line=ln,
+                evidence=raw_lines[ln - 1].strip()[:200] if 0 < ln <= len(raw_lines) else "",
+                remediation=_REMEDIATION, confidence=conf)
+
+        # TypeScript/JSX (and JS) AST via tree-sitter — primary, most precise path.
+        from orthosec.analysis import ts_ast
+        if ts_ast.available() and suffix in (".ts", ".tsx", ".jsx", ".js"):
+            hits = ts_ast.output_findings(text, tsx=suffix in (".tsx", ".jsx", ".js"))
+            if hits is not None:
+                for ln, cap in hits:
+                    yield _emit(ln, cap, 0.78)
+                return
+
+        if suffix == ".js":
             from orthosec.analysis import js_ast
             if js_ast.available():
                 hits = js_ast.output_findings(text)
                 if hits is not None:                 # parsed as JS — use AST taint
                     for ln, cap in hits:
-                        yield Finding(
-                            detector=self.id, rule_id="ORTHO-OUTPUT-001",
-                            title=f"LLM output flows into {cap} without sanitization",
-                            severity=Severity.HIGH, owasp_llm="LLM05", atlas=["AML.T0051"],
-                            file=ctx.rel(path), line=ln,
-                            evidence=raw_lines[ln - 1].strip()[:200] if 0 < ln <= len(raw_lines) else "",
-                            remediation=_REMEDIATION, confidence=0.75)
+                        yield _emit(ln, cap, 0.75)
                     return
         lines = strip_comments(text).splitlines()
         for lineno, line in enumerate(lines, start=1):

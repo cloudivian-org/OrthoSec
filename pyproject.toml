@@ -34,9 +34,12 @@ dependencies = []
 intel = ["anthropic>=0.40"]
 # Prettier console output; core falls back to plain text without it.
 pretty = ["rich>=13"]
-# Precise JavaScript (.js) analysis via AST; TS/JSX falls back to regex.
+# Precise JavaScript (.js) analysis via AST; without [ts], TS/JSX falls back to regex.
 js = ["esprima>=4.0"]
-dev = ["pytest>=8", "anthropic>=0.40", "rich>=13", "esprima>=4.0"]
+# Precise TypeScript / JSX (.ts/.tsx/.jsx) analysis via tree-sitter.
+ts = ["tree-sitter>=0.21", "tree-sitter-typescript>=0.21"]
+dev = ["pytest>=8", "anthropic>=0.40", "rich>=13", "esprima>=4.0",
+       "tree-sitter>=0.21", "tree-sitter-typescript>=0.21"]
 
 [project.scripts]
 orthosec = "orthosec.cli:main"

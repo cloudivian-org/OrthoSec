@@ -1,0 +1,250 @@
+"""Optional TypeScript / JSX AST analysis (tree-sitter).
+
+The core ships regex for TS/TSX. With the optional `orthosec[ts]` extra installed
+(`tree-sitter` + `tree-sitter-typescript`), `.ts` / `.tsx` / `.jsx` — and `.js` — are
+parsed to a real syntax tree so LLM05 (model output → sink) and LLM10 (uncapped
+completion) key on actual call nodes and dataflow, not line proximity. A string or
+comment that merely mentions `.innerHTML` or `.create()` no longer fires.
+
+Same contract as `js_ast`: every entry point returns None when the grammar is
+unavailable or the source won't parse, and the caller falls back to regex. So this
+is purely additive precision — nothing breaks without the extra.
+"""
+from __future__ import annotations
+
+import re
+
+_OUTPUT_NAME = re.compile(
+    r"(?i)(llm|model|completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
+# Receiver hint for gated generic verbs (run/query/call) — mirrors the Python engine.
+_LLM_RECEIVER = re.compile(
+    r"(?i)(llm|chain|agent|chat|model|openai|anthropic|gemini|bedrock|ollama|groq|"
+    r"cohere|mistral|queryengine|conversation|\brag\b|\bqa\b|assistant|completion)")
+_DB_RECEIVER = re.compile(r"(?i)(cursor|conn|connection|\bdb\b|database|session|sql|knex|prisma|pool|client)")
+
+_CACHE: dict = {}
+
+
+def available() -> bool:
+    try:
+        import tree_sitter, tree_sitter_typescript  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _parser(tsx: bool):
+    key = "tsx" if tsx else "ts"
+    if key in _CACHE:
+        return _CACHE[key]
+    try:
+        import tree_sitter_typescript as tsts
+        from tree_sitter import Language, Parser
+        lang = Language(tsts.language_tsx() if tsx else tsts.language_typescript())
+        try:
+            parser = Parser(lang)                 # tree-sitter >= 0.22
+        except Exception:
+            parser = Parser()                     # older API
+            parser.set_language(lang)
+    except Exception:
+        parser = None
+    _CACHE[key] = parser
+    return parser
+
+
+def _parse(src: str, tsx: bool):
+    parser = _parser(tsx)
+    if parser is None:
+        return None
+    try:
+        tree = parser.parse(bytes(src, "utf-8"))
+    except Exception:
+        return None
+    root = tree.root_node
+    if root is None or root.has_error and root.child_count == 0:
+        return None
+    return root
+
+
+def _walk(node):
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        yield n
+        stack.extend(n.children)
+
+
+def _line(node) -> int:
+    return node.start_point[0] + 1
+
+
+def _text(node) -> str:
+    return node.text.decode("utf-8", "replace")
+
+
+def _chain(node) -> list:
+    """Identifier segments of a member/subscript chain, base first:
+    model.chat.completions.create -> ['model','chat','completions','create']."""
+    parts = []
+    while node is not None and node.type in ("member_expression", "subscript_expression"):
+        if node.type == "member_expression":
+            prop = node.child_by_field_name("property")
+            if prop is not None:
+                parts.append(_text(prop))
+        node = node.child_by_field_name("object")
+    if node is not None and node.type == "identifier":
+        parts.append(_text(node))
+    return list(reversed(parts))
+
+
+def _callee_chain(call) -> list:
+    fn = call.child_by_field_name("function")
+    if fn is None:
+        return []
+    if fn.type == "identifier":
+        return [_text(fn)]
+    return _chain(fn)
+
+
+def _is_completion(chain: list) -> bool:
+    """A completion-style create() — the LLM10 (uncapped) surface."""
+    if not chain:
+        return False
+    return chain[-1] in ("create", "acreate", "generateContent") and \
+        bool(set(chain) & {"completions", "messages", "responses", "chat"} or chain[-1] == "generateContent")
+
+
+def _is_llm_output_call(chain: list) -> bool:
+    """Any call that yields model output (LangChain/LlamaIndex/OpenAI/Anthropic)."""
+    if not chain:
+        return False
+    last = chain[-1]
+    if _is_completion(chain):
+        return True
+    if last in ("generate", "complete", "invoke", "ainvoke", "stream", "createMessage", "chat"):
+        return True
+    if last in ("run", "query", "call", "predict"):        # generic — gate on receiver
+        return any(_LLM_RECEIVER.search(p) for p in chain)
+    return False
+
+
+def _args(call):
+    a = call.child_by_field_name("arguments")
+    return a.children if a is not None else []
+
+
+def _has_cap(call) -> bool:
+    for arg in _args(call):
+        if arg.type == "object":
+            for pair in arg.children:
+                if pair.type != "pair":
+                    continue
+                key = pair.child_by_field_name("key")
+                name = _text(key).strip('"\'').lower() if key is not None else ""
+                if name in ("max_tokens", "maxtokens", "max_output_tokens",
+                            "maxoutputtokens", "max_completion_tokens"):
+                    return True
+    return False
+
+
+def _refs(node, tainted: set) -> bool:
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type == "identifier" and _text(n) in tainted:
+            return True
+    return False
+
+
+def _expr_is_output(node, tainted: set) -> bool:
+    for n in _walk(node):
+        if n.type == "call_expression" and _is_llm_output_call(_callee_chain(n)):
+            return True
+        if n.type == "identifier" and _text(n) in tainted:
+            return True
+    return False
+
+
+# ---- public entry points ----------------------------------------------------
+
+def unbounded_findings(src: str, tsx: bool = True):
+    """Uncapped completion calls. Returns list of line numbers, or None to fall back."""
+    root = _parse(src, tsx)
+    if root is None:
+        return None
+    out = []
+    for n in _walk(root):
+        if n.type == "call_expression" and _is_completion(_callee_chain(n)) and not _has_cap(n):
+            out.append(_line(n))
+    return out
+
+
+def output_findings(src: str, tsx: bool = True):
+    """Model output flowing into a dangerous sink. Returns list of (line, capability),
+    or None to fall back to regex."""
+    root = _parse(src, tsx)
+    if root is None:
+        return None
+
+    decls = []   # (name, value_node)
+    for n in _walk(root):
+        if n.type == "variable_declarator":
+            name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+            if name is not None and name.type == "identifier":
+                decls.append((_text(name), val))
+        elif n.type == "assignment_expression":
+            left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
+            if left is not None and left.type == "identifier":
+                decls.append((_text(left), right))
+
+    tainted = {name for name, _ in decls if _OUTPUT_NAME.search(name)}
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if _expr_is_output(val, tainted):
+                tainted.add(name)
+                changed = True
+    if not tainted:
+        return []
+
+    out = []
+    seen = set()
+
+    def add(line, cap):
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for n in _walk(root):
+        t = n.type
+        if t == "assignment_expression":
+            left = n.child_by_field_name("left")
+            if left is not None and left.type == "member_expression" \
+                    and _prop(left) == "innerHTML" and _refs(n.child_by_field_name("right"), tainted):
+                add(_line(n), "HTML injection (innerHTML)")
+        elif t == "jsx_attribute":
+            if n.child_count and _text(n.children[0]) == "dangerouslySetInnerHTML" and _refs(n, tainted):
+                add(_line(n), "HTML injection (dangerouslySetInnerHTML)")
+        elif t == "call_expression":
+            chain = _callee_chain(n)
+            argnode = n.child_by_field_name("arguments")
+            if not chain or not _refs(argnode, tainted):
+                continue
+            last = chain[-1]
+            if last == "eval" or (last == "Function"):
+                add(_line(n), "code execution (eval/Function)")
+            elif chain[-2:] == ["document", "write"]:
+                add(_line(n), "HTML injection (document.write)")
+            elif last in ("exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync"):
+                add(_line(n), "shell execution")
+            elif last in ("query", "raw", "execute") and any(_DB_RECEIVER.search(p) for p in chain):
+                add(_line(n), "raw SQL execution")
+    return out
+
+
+def _prop(member) -> str:
+    prop = member.child_by_field_name("property")
+    return _text(prop) if prop is not None else ""
