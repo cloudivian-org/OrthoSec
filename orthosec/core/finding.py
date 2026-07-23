@@ -50,6 +50,14 @@ class Finding:
     def location(self) -> str:
         return f"{self.file}:{self.line}" if self.line else self.file
 
+    @property
+    def fingerprint(self) -> str:
+        """Stable identity across line moves — rule + file + evidence, not line number.
+        Used for baseline suppression so shifting code doesn't resurface a finding."""
+        import hashlib
+        key = f"{self.rule_id}|{self.file}|{self.evidence.strip()}"
+        return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["severity"] = self.severity.name

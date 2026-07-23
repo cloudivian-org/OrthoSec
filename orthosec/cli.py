@@ -40,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument("--sarif", metavar="FILE", help="Write SARIF 2.1.0 for CI/GitHub")
     p_scan.add_argument("--html", metavar="FILE", help="HTML report path (default: orthosec-report.html)")
     p_scan.add_argument("--no-report", action="store_true", help="Do not auto-generate the HTML report")
+    p_scan.add_argument("--baseline", metavar="FILE",
+                        help="Suppress findings recorded in this baseline (gate on NEW findings only)")
+    p_scan.add_argument("--write-baseline", metavar="FILE",
+                        help="Record current findings as the baseline (accept them) and exit 0")
     p_scan.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
     p_scan.add_argument("--fail-on", default=None,
                         choices=["critical", "high", "medium", "low", "none"],
@@ -122,12 +126,36 @@ def _cmd_scan(args) -> int:
     from orthosec.remediation import assign
     assign(result.findings)             # attach remediation agent + plan to each finding
 
+    if args.write_baseline:
+        fps = sorted({f.fingerprint for f in result.findings})
+        with open(args.write_baseline, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "fingerprints": fps}, fh, indent=2)
+        print(f"Wrote baseline of {len(fps)} finding(s) -> {args.write_baseline}", file=sys.stderr)
+        return 0
+
+    baselined = 0
+    if args.baseline:
+        from pathlib import Path
+        from orthosec.core.scoring import posture_score, grade as _grade
+        try:
+            base = set(json.loads(Path(args.baseline).read_text()).get("fingerprints", []))
+        except Exception:
+            base = set()
+        before = len(result.findings)
+        result.findings = [f for f in result.findings if f.fingerprint not in base]
+        baselined = before - len(result.findings)
+        result.score = posture_score(result.findings)
+        result.grade = _grade(result.score)
+
     exec_summary = None
     if not args.no_exec:
         from orthosec.intel.narrative import executive_summary
         exec_summary = executive_summary(result, profile=profile)
 
     print(console.render(result, exec_summary=exec_summary, profile=profile))
+    if baselined:
+        print(f"({baselined} finding(s) suppressed by baseline — showing new findings only)",
+              file=sys.stderr)
 
     if args.json:
         payload = {

@@ -25,6 +25,8 @@ _MAX_BYTES = 2_000_000  # skip files larger than 2MB
 # Build artifacts / bundles / lockfiles — not source; frequent false-positive sources.
 _SKIP_FILE = re.compile(r"(?i)(\.min\.(js|css)$|\.bundle\.|-lock\.json$|package-lock\.json$|"
                         r"yarn\.lock$|\.map$|\.d\.ts$|\.chunk\.)")
+# Inline suppression: `# orthosec: ignore` or `# orthosec: ignore LLM06,ORTHO-PI-001`.
+_IGNORE = re.compile(r"(?i)(?:#|//)\s*orthosec:\s*ignore\b\s*([A-Za-z0-9,_\-]*)")
 
 
 @dataclass
@@ -95,6 +97,7 @@ class Scanner:
             except Exception as exc:  # detector isolation
                 errors.append(f"{getattr(det, 'id', det)}: {exc!r}")
 
+        findings = [f for f in findings if not _inline_suppressed(ctx, f)]
         findings.sort(key=lambda f: (-f.severity.value, f.file, f.line))
         score = posture_score(findings)
         return ScanResult(
@@ -105,6 +108,32 @@ class Scanner:
             detectors_run=ran,
             errors=errors,
         )
+
+
+def _inline_suppressed(ctx: "ScanContext", f: Finding) -> bool:
+    """True if the finding's line (or the line above) carries an orthosec-ignore
+    directive that matches this finding's OWASP category or rule id (or is bare)."""
+    if not f.line:
+        return False
+    path = ctx.root / f.file
+    lines = ctx.read(path).splitlines()
+    for ln in (f.line, f.line - 1):
+        if not (1 <= ln <= len(lines)):
+            continue
+        line = lines[ln - 1]
+        # A directive on the line above only applies if it's a STANDALONE comment
+        # (a trailing `# orthosec: ignore` belongs to its own code line, not the next).
+        if ln == f.line - 1 and not line.lstrip().startswith(("#", "//")):
+            continue
+        m = _IGNORE.search(line)
+        if m:
+            spec = (m.group(1) or "").strip()
+            if not spec:
+                return True
+            toks = {t.strip().upper() for t in spec.split(",") if t.strip()}
+            if f.owasp_llm.upper() in toks or f.rule_id.upper() in toks:
+                return True
+    return False
 
 
 def _walk(root: Path, exclude: list[str] | None = None) -> Iterable[Path]:

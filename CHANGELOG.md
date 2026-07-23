@@ -2,6 +2,17 @@
 
 All notable changes to OrthoSec are documented here. Versions follow semver.
 
+## [Unreleased]
+
+### Added
+- **Baseline suppression** — `orthosec scan --write-baseline FILE` records current
+  findings; `--baseline FILE` suppresses them so CI gates on **new** findings only.
+  Matches by a stable fingerprint (rule + file + evidence, not line number), so
+  shifting code doesn't resurface a finding. Makes adoption on an existing codebase
+  practical.
+- **Inline suppression** — `# orthosec: ignore` (or `# orthosec: ignore LLM03,ORTHO-PI-001`)
+  on a finding's line, or a standalone comment immediately above it, suppresses it.
+
 ## [0.6.2]
 
 ### Added

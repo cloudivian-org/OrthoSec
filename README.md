@@ -217,6 +217,22 @@ orthosec proxy --upstream https://api.openai.com --mode block
 
 Every request/response flows through inline: injected prompts are refused (`block`) or logged (`monitor`) before reaching the provider, and responses are scanned for credential leaks / executable payloads. Provider-agnostic (OpenAI + Anthropic message shapes), stdlib-only, adds `X-OrthoSec-*-Risk` headers and a JSON audit log.
 
+## Adopt on an existing codebase (baseline + ignore)
+
+Turning `--fail-on` on a repo that already has findings would flood CI. Baseline it once, then gate on **new** findings only:
+
+```bash
+orthosec scan . --write-baseline .orthosec-baseline.json   # accept today's findings
+orthosec scan . --baseline .orthosec-baseline.json --fail-on high  # CI fails only on NEW ones
+```
+
+The baseline matches by a **stable fingerprint** (rule + file + evidence, not line number), so shifting code doesn't resurface a finding. For one-off exceptions, an inline comment on the finding's line (or the line above) suppresses it:
+
+```python
+return pickle.load(f)          # orthosec: ignore            (suppress any finding here)
+return pickle.load(f)          # orthosec: ignore LLM03      (only this category)
+```
+
 ## Detection efficacy
 
 Accuracy is measured, not asserted. A labeled corpus of vulnerable samples **and safe look-alikes** (mitigated code that resembles a vulnerability) drives a precision/recall benchmark — run `python benchmark/run.py`:
