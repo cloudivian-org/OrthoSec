@@ -19,7 +19,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cloudivian-org/OrthoSec",
+    "url": "git+https://github.com/cloudivian-org/OrthoSec.git",
     "directory": "sdk/js"
   },
   "engines": { "node": ">=18" }
