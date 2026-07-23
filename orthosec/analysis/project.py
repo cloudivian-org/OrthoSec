@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 
 from orthosec.analysis.pyast import (safe_parse, _function_defs, _dangerous_params,
                                      _prompt_building_params, tainted_vars,
-                                     untrusted_vars, _refs_taint, Sink)
+                                     untrusted_vars, _refs_taint, Sink,
+                                     dangerous_sinks, find_tool_functions, has_confirmation)
 
 
 @dataclass
@@ -31,6 +32,9 @@ class ProjectIndex:
     modules: dict[str, tuple] = field(default_factory=dict)          # stem -> (tree, lines)
     summaries: dict[tuple, _FuncSummary] = field(default_factory=dict)  # (stem, func) -> summary
     imports: dict[str, dict] = field(default_factory=dict)           # stem -> {alias: (srcstem, func)}
+    func_nodes: dict[tuple, object] = field(default_factory=dict)    # (stem, func) -> FunctionDef
+    module_lines: dict[str, list] = field(default_factory=dict)      # stem -> source lines
+    _tool_reach: dict = field(default=None)                          # memoized reachability
 
 
 def build_index(ctx) -> ProjectIndex:
@@ -45,7 +49,9 @@ def build_index(ctx) -> ProjectIndex:
         stem = path.stem
         lines = src.splitlines()
         idx.modules[stem] = (tree, lines)
+        idx.module_lines[stem] = lines
         for name, fn in _function_defs(tree).items():
+            idx.func_nodes[(stem, name)] = fn
             sink_params, params = _dangerous_params(fn, lines)
             prompt_params, _ = _prompt_building_params(fn, lines)
             if sink_params or prompt_params:
@@ -121,6 +127,75 @@ def _cross_file(idx, cur_stem, tree, lines, taint_of_scope, dangerous_of):
                 seen.add(line)
                 snippet = lines[line - 1].strip()[:160] if 0 < line <= len(lines) else ""
                 out.append(Sink(f"a helper in module '{target[0]}' ({target[1]}())", line, snippet))
+    return out
+
+
+def _resolve_callee(idx: ProjectIndex, stem: str, call: ast.Call):
+    """Resolve a call to the (stem, func) it targets — local or imported — or None."""
+    f = call.func
+    if isinstance(f, ast.Name):
+        if (stem, f.id) in idx.func_nodes:
+            return (stem, f.id)
+        t = idx.imports.get(stem, {}).get(f.id)
+        if t and t[1] != "*" and (t[0], t[1]) in idx.func_nodes:
+            return (t[0], t[1])
+    elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+        t = idx.imports.get(stem, {}).get("mod:" + f.value.id)
+        if t and (t[0], f.attr) in idx.func_nodes:
+            return (t[0], f.attr)
+    return None
+
+
+def _tool_reachability(idx: ProjectIndex) -> dict:
+    """Project-wide fixpoint: for each function, the dangerous sinks reachable from it
+    directly OR through called functions in ANY module. Each sink carries its own
+    module so cross-module reaches can be distinguished."""
+    if idx._tool_reach is not None:
+        return idx._tool_reach
+    direct, edges = {}, {}
+    for (stem, name), fn in idx.func_nodes.items():
+        lines = idx.module_lines.get(stem, [])
+        direct[(stem, name)] = {(stem, s.line, s.capability, s.snippet)
+                                for s in dangerous_sinks(fn, lines)}
+        e = set()
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Call):
+                tgt = _resolve_callee(idx, stem, node)
+                if tgt:
+                    e.add(tgt)
+        edges[(stem, name)] = e
+    reach = {k: set(v) for k, v in direct.items()}
+    changed = True
+    while changed:
+        changed = False
+        for k, e in edges.items():
+            for c in e:
+                for s in reach.get(c, ()):
+                    if s not in reach[k]:
+                        reach[k].add(s)
+                        changed = True
+    idx._tool_reach = reach
+    return reach
+
+
+def cross_file_tool_sinks(ctx, path, tree, lines):
+    """Model-invokable tools whose dangerous sink lives in an IMPORTED module.
+    Returns (Sink, mitigated, tool_name) — same shape as reachable_tool_sinks."""
+    idx = get_index(ctx)
+    reach = _tool_reachability(idx)
+    stem = path.stem
+    out, seen = [], set()
+    for name, fn in find_tool_functions(tree).items():
+        mitigated = has_confirmation(fn)
+        for (sinkmod, line, cap, snip) in reach.get((stem, name), ()):
+            if sinkmod == stem:
+                continue  # intra-file — handled by reachable_tool_sinks
+            key = (name, sinkmod, line, cap)
+            if key in seen:
+                continue
+            seen.add(key)
+            s = Sink(f"{cap} (in imported module '{sinkmod}')", fn.lineno, snip)
+            out.append((s, mitigated, name))
     return out
 
 

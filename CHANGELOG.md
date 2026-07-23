@@ -4,6 +4,18 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Added
+- **LLM06 cross-module** — a model tool that delegates to a dangerous sink in an
+  *imported* module is now caught (project-wide call-graph reachability). All three
+  dataflow detectors (LLM01/05/06) are now interprocedural + cross-module.
+- **Auto-generated report** — every `orthosec scan` writes the detailed HTML report
+  to `orthosec-report.html` by default (`--html` to relocate, `--no-report` to skip).
+- **Scheduling** — `orthosec watch <path> --every 1d` re-scans on a cadence, writing
+  `report-<ts>.html` + `latest.html`/`latest.json` (daily report or continuous).
+  `orthosec schedule` prints crontab / GitHub Actions / systemd snippets. All
+  defaults are `.env`-controllable (`ORTHOSEC_WATCH_EVERY`, `ORTHOSEC_REPORT_DIR`,
+  `ORTHOSEC_CRON`, `ORTHOSEC_PROFILE`); CLI flags override.
+
 ### Fixed (real-world validation hardening)
 Scanning AutoGPT, openai-cookbook, and anthropic-quickstarts (1,831 files, 0 crashes)
 surfaced and fixed five false-positive classes; findings dropped 257 -> 122 with the

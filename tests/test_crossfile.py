@@ -50,6 +50,18 @@ class TestCrossFile(unittest.TestCase):
         findings = Scanner().scan(d).findings
         self.assertTrue(any(f.owasp_llm == "LLM05" and f.file == "runner.py" for f in findings))
 
+    def test_tool_reaches_imported_helper_sink(self):
+        d = _pkg({
+            "dangerous.py": "import os\ndef do_exec(cmd):\n    os.system(cmd)\n",
+            "app.py": ("from dangerous import do_exec\n"
+                       "def register():\n"
+                       "    def run(cmd):\n"
+                       "        do_exec(cmd)\n"
+                       "    return [{'type': 'function', 'name': 'run', 'fn': run}]\n"),
+        })
+        findings = Scanner().scan(d).findings
+        self.assertTrue(any(f.owasp_llm == "LLM06" and f.file == "app.py" for f in findings))
+
     def test_no_false_positive_untainted_arg(self):
         # Imported helper with a sink, but the caller passes a non-tainted value.
         d = _pkg({

@@ -102,7 +102,19 @@ docker run --rm --env-file .env -v "$PWD:/scan" orthosec scan /scan --profile ci
 python -m orthosec.cli scan ./my-ai-app --html report.html
 ```
 
-A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+**Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+
+## Scheduling — continuous & daily reports
+
+Run OrthoSec on a cadence. Defaults come from `.env` (or the flags override them):
+
+```bash
+orthosec watch ./my-ai-app --every 1d            # re-scan daily, write a report each run
+orthosec watch ./my-ai-app --every 6h            # every 6h; latest.html always current
+orthosec schedule ./my-ai-app --cron "0 9 * * *" # print crontab / GitHub Actions / systemd snippets
+```
+
+`watch` writes `report-<timestamp>.html` + `latest.html`/`latest.json` into `--report-dir` (default `orthosec-reports/`) on each run — a daily report if `--every 1d`, continuous if shorter. `.env` keys: `ORTHOSEC_WATCH_EVERY`, `ORTHOSEC_REPORT_DIR`, `ORTHOSEC_CRON`, `ORTHOSEC_PROFILE`. CLI flags always win over `.env`.
 
 ## Remediation agents
 
@@ -164,7 +176,7 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 | `rag-trust` | LLM08 | Untrusted web/upload content ingested into a retrieval corpus without provenance |
 | `unbounded-consumption` | LLM10 | LLM calls with no output cap; unbounded agent loops (denial-of-wallet) |
 
-Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern. Python targets get **AST taint/dataflow** (`orthosec/analysis/`): the three dataflow-shaped detectors trace real data, not line-proximity — untrusted input into a system prompt (LLM01), model output into a sink (LLM05), and dangerous sinks inside model-invokable tools (LLM06) — each firing only when the actual data reaches the actual sink, at any distance, **across function calls (interprocedural)** and **across modules** (import-resolved, LLM01/LLM05), respecting trust-boundary and sanitizer mitigations. JS/TS uses regex.
+Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern. Python targets get **AST taint/dataflow** (`orthosec/analysis/`): the three dataflow-shaped detectors trace real data, not line-proximity — untrusted input into a system prompt (LLM01), model output into a sink (LLM05), and dangerous sinks inside model-invokable tools (LLM06) — each firing only when the actual data reaches the actual sink, at any distance, **across function calls (interprocedural)** and **across modules** (import-resolved — all three detectors), respecting trust-boundary and sanitizer mitigations. JS/TS uses regex.
 
 Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@register`, done. See [CONTRIBUTING.md](CONTRIBUTING.md).
 

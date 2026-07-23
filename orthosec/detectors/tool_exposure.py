@@ -19,6 +19,7 @@ from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
 from orthosec.detectors._signals import mitigation_present
 from orthosec.analysis.pyast import safe_parse, reachable_tool_sinks
+from orthosec.analysis.project import cross_file_tool_sinks
 
 # --- regex path (JS/TS) -----------------------------------------------------
 _DANGEROUS = {
@@ -64,9 +65,14 @@ class ToolExposureDetector:
             yield from self._scan_regex(ctx, path, text)  # fallback on syntax error
             return
         lines = text.splitlines()
-        # reachable_tool_sinks resolves sinks reachable from a tool directly OR
-        # through local helper functions it calls (interprocedural).
-        for s, mitigated, name in reachable_tool_sinks(tree, lines):
+        # reachable_tool_sinks: sinks reachable from a tool directly or through local
+        # helpers; cross_file_tool_sinks: through helpers imported from other modules.
+        seen: set[tuple] = set()
+        for s, mitigated, name in (reachable_tool_sinks(tree, lines)
+                                   + cross_file_tool_sinks(ctx, path, tree, lines)):
+            if (s.line, s.capability) in seen:
+                continue
+            seen.add((s.line, s.capability))
             yield Finding(
                 detector=self.id,
                 rule_id="ORTHO-AGENCY-001",

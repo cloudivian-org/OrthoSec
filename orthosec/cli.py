@@ -38,7 +38,8 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"Audience view (default: {DEFAULT_PROFILE}, or .orthosec.yml)")
     p_scan.add_argument("--json", metavar="FILE", help="Write full findings as JSON")
     p_scan.add_argument("--sarif", metavar="FILE", help="Write SARIF 2.1.0 for CI/GitHub")
-    p_scan.add_argument("--html", metavar="FILE", help="Write a self-contained visual HTML report")
+    p_scan.add_argument("--html", metavar="FILE", help="HTML report path (default: orthosec-report.html)")
+    p_scan.add_argument("--no-report", action="store_true", help="Do not auto-generate the HTML report")
     p_scan.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
     p_scan.add_argument("--fail-on", default=None,
                         choices=["critical", "high", "medium", "low", "none"],
@@ -59,6 +60,20 @@ def main(argv: list[str] | None = None) -> int:
     p_rem.add_argument("--auto", action="store_true",
                        help="Apply LLM-drafted patches in place (backs up originals to .orig)")
 
+    # watch/schedule defaults are env-controllable (.env): ORTHOSEC_WATCH_EVERY,
+    # ORTHOSEC_REPORT_DIR, ORTHOSEC_CRON, ORTHOSEC_PROFILE. Flags override env.
+    p_watch = sub.add_parser("watch", help="Re-scan on a schedule, writing a report each run")
+    p_watch.add_argument("path", help="Path to the AI product")
+    p_watch.add_argument("--every", default=None, help="Interval e.g. 45s 30m 6h 1d (env: ORTHOSEC_WATCH_EVERY, default 1d)")
+    p_watch.add_argument("--report-dir", default=None, help="Report output dir (env: ORTHOSEC_REPORT_DIR)")
+    p_watch.add_argument("--profile", default=None, choices=list(PROFILES))
+    p_watch.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
+
+    p_sched = sub.add_parser("schedule", help="Print crontab / GitHub Actions / systemd scheduling snippets")
+    p_sched.add_argument("path", help="Path to the AI product")
+    p_sched.add_argument("--cron", default=None, help="Cron expression (env: ORTHOSEC_CRON, default 9am daily)")
+    p_sched.add_argument("--profile", default=None, choices=list(PROFILES))
+
     p_proxy = sub.add_parser("proxy", help="Run the inline runtime gateway (inspect live LLM traffic)")
     p_proxy.add_argument("--upstream", default=None,
                          help="Provider base URL (or ORTHOSEC_UPSTREAM). e.g. https://api.openai.com")
@@ -78,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_ask(args)
     if args.command == "remediate":
         return _cmd_remediate(args)
+    if args.command == "watch":
+        return _cmd_watch(args)
+    if args.command == "schedule":
+        return _cmd_schedule(args)
     if args.command == "proxy":
         return _cmd_proxy(args)
     if args.command == "detectors":
@@ -90,9 +109,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_scan(args) -> int:
+    import os
     cfg = load_project_config(args.path)  # .orthosec.yml at the target root, if any
-    profile = get_profile(args.profile or cfg.get("profile") or DEFAULT_PROFILE)
-    fail_on = args.fail_on or cfg.get("fail_on") or "high"
+    profile = get_profile(args.profile or cfg.get("profile")
+                          or os.environ.get("ORTHOSEC_PROFILE") or DEFAULT_PROFILE)
+    fail_on = args.fail_on or cfg.get("fail_on") or os.environ.get("ORTHOSEC_FAIL_ON") or "high"
     exclude = cfg.get("exclude") or []
 
     scanner = Scanner(exclude=exclude)
@@ -127,11 +148,13 @@ def _cmd_scan(args) -> int:
             json.dump(to_sarif(result), fh, indent=2)
         print(f"Wrote SARIF report -> {args.sarif}", file=sys.stderr)
 
-    if args.html:
+    # Auto-generate the detailed HTML report on every run unless suppressed.
+    report_path = args.html or (None if args.no_report else "orthosec-report.html")
+    if report_path:
         from orthosec.report.html import render_html
-        with open(args.html, "w", encoding="utf-8") as fh:
+        with open(report_path, "w", encoding="utf-8") as fh:
             fh.write(render_html(result, profile=profile.id, exec_summary=exec_summary))
-        print(f"Wrote HTML report -> {args.html}", file=sys.stderr)
+        print(f"Report -> {report_path}", file=sys.stderr)
 
     return _exit_code(result, fail_on)
 
@@ -216,6 +239,64 @@ def _apply_patch(root, rel_file, patch: str) -> int:
     fpath.write_text(patch, encoding="utf-8")
     print(f"    ✓ applied fix to {rel_file} (backup: {backup.name})")
     return 1
+
+
+def _cmd_watch(args) -> int:
+    import os
+    import time
+    import datetime
+    from pathlib import Path
+    from orthosec.schedule import parse_duration
+    from orthosec.report.html import render_html
+    from orthosec.remediation import assign
+
+    every = args.every or os.environ.get("ORTHOSEC_WATCH_EVERY", "1d")
+    report_dir = args.report_dir or os.environ.get("ORTHOSEC_REPORT_DIR", "orthosec-reports")
+    profile = get_profile(args.profile or os.environ.get("ORTHOSEC_PROFILE") or DEFAULT_PROFILE)
+    try:
+        interval = parse_duration(every)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    rdir = Path(report_dir)
+    rdir.mkdir(parents=True, exist_ok=True)
+    exclude = load_project_config(args.path).get("exclude") or []
+    print(f"OrthoSec watch: scanning {args.path} every {every} → {rdir}/  (Ctrl-C to stop)",
+          file=sys.stderr)
+    try:
+        while True:
+            result = Scanner(exclude=exclude).scan(args.path)
+            annotate_findings(result.findings)
+            assign(result.findings)
+            exec_summary = None
+            if not args.no_exec:
+                from orthosec.intel.narrative import executive_summary
+                exec_summary = executive_summary(result, profile=profile)
+            ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            html = render_html(result, profile=profile.id, exec_summary=exec_summary)
+            (rdir / f"report-{ts}.html").write_text(html, encoding="utf-8")
+            (rdir / "latest.html").write_text(html, encoding="utf-8")
+            payload = {"generated": ts, "score": result.score, "grade": result.grade,
+                       "severity_counts": result.by_severity(),
+                       "findings": [f.to_dict() for f in result.findings]}
+            (rdir / "latest.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            n = sum(result.by_severity().values())
+            print(f"[{ts}] score {result.score}/100 grade {result.grade} — {n} findings "
+                  f"→ {rdir}/latest.html", flush=True)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nstopped.", file=sys.stderr)
+        return 0
+
+
+def _cmd_schedule(args) -> int:
+    import os
+    from orthosec.schedule import cron_snippets
+    cron = args.cron or os.environ.get("ORTHOSEC_CRON", "0 9 * * *")
+    profile = args.profile or os.environ.get("ORTHOSEC_PROFILE") or DEFAULT_PROFILE
+    print(cron_snippets(args.path, cron, profile))
+    return 0
 
 
 def _cmd_proxy(args) -> int:
