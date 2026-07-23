@@ -45,6 +45,8 @@ def to_sarif(result: ScanResult, version: str = "0.1.0") -> dict:
                     "region": {"startLine": max(1, f.line)},
                 }
             }],
+            # Stable identity so GitHub code scanning dedupes across runs and line moves.
+            "partialFingerprints": {"orthosecFingerprint/v1": f.fingerprint},
             "properties": {"owasp-llm": f.owasp_llm, "atlas": f.atlas, "confidence": f.confidence},
         })
 

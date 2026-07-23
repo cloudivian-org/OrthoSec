@@ -12,6 +12,13 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   practical.
 - **Inline suppression** — `# orthosec: ignore` (or `# orthosec: ignore LLM03,ORTHO-PI-001`)
   on a finding's line, or a standalone comment immediately above it, suppresses it.
+- **`--diff` mode** — `orthosec scan . --diff [REF]` scans only files changed vs git
+  (default HEAD; or a branch), for fast pre-commit / PR gating.
+- **LLM04 detector** (`data-poisoning`) — flags fine-tuning jobs and training on data
+  drawn from untrusted sources (web fetch, upload, user input) without verification.
+  Added to the benchmark (now 8 detectors, 16/16, 0 FP).
+- **SARIF `partialFingerprints`** — each result carries a stable fingerprint so GitHub
+  code scanning dedupes findings across runs and line moves.
 
 ## [0.6.2]
 

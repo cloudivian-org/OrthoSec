@@ -171,6 +171,7 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 | `prompt-hardening` | LLM01 / LLM07 | Untrusted input concatenated into prompts; secrets embedded in system prompts |
 | `secrets` | LLM02 | Hardcoded provider/model API keys |
 | `unsafe-model-load` | LLM03 / LLM04 | pickle / `torch.load` / unsafe deserialization; unpinned model fetches |
+| `data-poisoning` | LLM04 | fine-tuning jobs; training on data from untrusted sources |
 | `output-handling` | LLM05 | LLM output flowing unsanitized into eval/shell/SQL/HTML sinks |
 | `tool-exposure` | LLM06 | Over-privileged agent tools (shell, file, HTTP, SQL) with no confirmation gate |
 | `rag-trust` | LLM08 | Untrusted web/upload content ingested into a retrieval corpus without provenance |
@@ -224,6 +225,13 @@ Turning `--fail-on` on a repo that already has findings would flood CI. Baseline
 ```bash
 orthosec scan . --write-baseline .orthosec-baseline.json   # accept today's findings
 orthosec scan . --baseline .orthosec-baseline.json --fail-on high  # CI fails only on NEW ones
+```
+
+For a fast pre-commit / PR gate, scan only what changed:
+
+```bash
+orthosec scan . --diff              # only files changed vs HEAD (untracked + modified)
+orthosec scan . --diff origin/main  # only files changed vs a branch
 ```
 
 The baseline matches by a **stable fingerprint** (rule + file + evidence, not line number), so shifting code doesn't resurface a finding. For one-off exceptions, an inline comment on the finding's line (or the line above) suppresses it:

@@ -84,7 +84,21 @@ class Scanner:
 
     def scan(self, root: str | os.PathLike) -> ScanResult:
         root_path = Path(root).resolve()
-        files = list(_walk(root_path, self.exclude))
+        return self._run(root_path, list(_walk(root_path, self.exclude)))
+
+    def scan_files(self, root: str | os.PathLike, file_list) -> ScanResult:
+        """Scan an explicit set of files (e.g. a git diff), keeping `root` for module
+        keys / relative paths. Cross-module analysis is limited to the listed files."""
+        root_path = Path(root).resolve()
+        files = []
+        for f in file_list:
+            p = Path(f).resolve()
+            if p.is_file() and (p.suffix.lower() in _TEXT_EXT or p.name == ".env") \
+                    and not _SKIP_FILE.search(p.name):
+                files.append(p)
+        return self._run(root_path, files)
+
+    def _run(self, root_path: Path, files: list) -> ScanResult:
         ctx = ScanContext(root=root_path, files=files)
 
         findings: list[Finding] = []

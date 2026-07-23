@@ -30,6 +30,7 @@ ATLAS = {
     "AML.T0055": "Unsecured Credentials",
     "AML.T0010": "ML Supply Chain Compromise",
     "AML.T0018": "Manipulate AI Model (Poisoning)",
+    "AML.T0020": "Poison Training Data",
 }
 
 # Compliance controls the intel layer maps findings onto. Framework -> {control: desc}.

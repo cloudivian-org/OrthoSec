@@ -40,6 +40,9 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument("--sarif", metavar="FILE", help="Write SARIF 2.1.0 for CI/GitHub")
     p_scan.add_argument("--html", metavar="FILE", help="HTML report path (default: orthosec-report.html)")
     p_scan.add_argument("--no-report", action="store_true", help="Do not auto-generate the HTML report")
+    p_scan.add_argument("--diff", nargs="?", const="HEAD", metavar="REF",
+                        help="Scan only files changed vs git (default HEAD; or a ref like origin/main). "
+                             "Fast for pre-commit/PR; cross-module is limited to changed files.")
     p_scan.add_argument("--baseline", metavar="FILE",
                         help="Suppress findings recorded in this baseline (gate on NEW findings only)")
     p_scan.add_argument("--write-baseline", metavar="FILE",
@@ -121,7 +124,18 @@ def _cmd_scan(args) -> int:
     exclude = cfg.get("exclude") or []
 
     scanner = Scanner(exclude=exclude)
-    result = scanner.scan(args.path)
+    if args.diff:
+        changed = _git_changed_files(args.path, args.diff)
+        if changed is None:
+            print("error: --diff needs a git repository (git not found or not a repo)", file=sys.stderr)
+            return 2
+        if not changed:
+            print(f"No changed files vs {args.diff} — nothing to scan.", file=sys.stderr)
+            return 0
+        print(f"Scanning {len(changed)} changed file(s) vs {args.diff}", file=sys.stderr)
+        result = scanner.scan_files(args.path, changed)
+    else:
+        result = scanner.scan(args.path)
     annotate_findings(result.findings)  # deterministic business_impact on each finding
     from orthosec.remediation import assign
     assign(result.findings)             # attach remediation agent + plan to each finding
@@ -267,6 +281,38 @@ def _apply_patch(root, rel_file, patch: str) -> int:
     fpath.write_text(patch, encoding="utf-8")
     print(f"    ✓ applied fix to {rel_file} (backup: {backup.name})")
     return 1
+
+
+def _git_changed_files(path, ref):
+    """Files changed vs `ref` (default HEAD) plus untracked, as absolute paths under
+    `path`. Returns None if not a git repo / git unavailable, [] if nothing changed."""
+    import subprocess
+    from pathlib import Path
+
+    def _git(*args):
+        return subprocess.run(["git", "-C", str(path), *args],
+                              capture_output=True, text=True, timeout=30)
+    try:
+        top = _git("rev-parse", "--show-toplevel")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if top.returncode != 0:
+        return None
+    gitroot = Path(top.stdout.strip())
+
+    rels = set()
+    for cmd in (("diff", "--name-only", ref), ("ls-files", "--others", "--exclude-standard")):
+        r = _git(*cmd)
+        if r.returncode == 0:
+            rels.update(x for x in r.stdout.splitlines() if x.strip())
+
+    scan_root = Path(path).resolve()
+    out = []
+    for rel in rels:
+        p = (gitroot / rel).resolve()
+        if p.is_file() and (scan_root in p.parents or p == scan_root):
+            out.append(p)
+    return out
 
 
 def _cmd_watch(args) -> int:
