@@ -32,7 +32,7 @@ AI products fail in AI-specific ways — prompt injection, excessive agency, mod
 Zero dependencies. Install, or clone and run:
 
 ```bash
-pip install orthosec                     # once published; or from source below
+pip install orthosec                     # + extras: orthosec[intel,ts,js,pretty]
 orthosec scan ./path/to/your/ai-app
 
 # from source (no install):

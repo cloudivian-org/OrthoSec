@@ -4,6 +4,8 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-23
+
 ### Added
 - **TypeScript / JSX AST analysis** (`orthosec[ts]`, tree-sitter) — `.ts`/`.tsx`/`.jsx`
   (and `.js`) are parsed to a real syntax tree so LLM05 (model output → eval/`Function`/
