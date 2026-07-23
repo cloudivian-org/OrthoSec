@@ -2,7 +2,7 @@
 
 All notable changes to OrthoSec are documented here. Versions follow semver.
 
-## [Unreleased]
+## [0.6.2]
 
 ### Added
 - **LLM06 cross-module** — a model tool that delegates to a dangerous sink in an
@@ -15,8 +15,6 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   `orthosec schedule` prints crontab / GitHub Actions / systemd snippets. All
   defaults are `.env`-controllable (`ORTHOSEC_WATCH_EVERY`, `ORTHOSEC_REPORT_DIR`,
   `ORTHOSEC_CRON`, `ORTHOSEC_PROFILE`); CLI flags override.
-
-### Added
 - **Optional JavaScript AST** (`orthosec[js]`, esprima) — plain `.js` is parsed to an
   AST so LLM10/LLM05 key on real call nodes and dataflow, not line proximity (a
   string or comment mentioning `.create()` is no longer flagged). TypeScript/JSX
