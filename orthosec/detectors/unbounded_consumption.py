@@ -108,8 +108,20 @@ class UnboundedConsumptionDetector:
         )
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
-        lines = strip_comments(text).splitlines()
         raw = text.splitlines()
+        if path.suffix.lower() == ".js":
+            from orthosec.analysis import js_ast
+            if js_ast.available():
+                hits = js_ast.unbounded_findings(text)
+                if hits is not None:                 # parsed as JS — use AST, not regex
+                    for ln in hits:
+                        yield Finding(
+                            detector=self.id, rule_id="ORTHO-CONSUME-001",
+                            title="LLM call without an output-token cap", severity=Severity.MEDIUM,
+                            owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=ln,
+                            evidence=_snip(raw, ln), remediation=_CAP_FIX, confidence=0.65)
+                    return
+        lines = strip_comments(text).splitlines()
         for lineno, line in enumerate(lines, start=1):
             if _JS_CALL.search(line):
                 window = "\n".join(lines[lineno - 1:lineno + 8])

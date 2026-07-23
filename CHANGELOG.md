@@ -16,6 +16,18 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   defaults are `.env`-controllable (`ORTHOSEC_WATCH_EVERY`, `ORTHOSEC_REPORT_DIR`,
   `ORTHOSEC_CRON`, `ORTHOSEC_PROFILE`); CLI flags override.
 
+### Added
+- **Optional JavaScript AST** (`orthosec[js]`, esprima) — plain `.js` is parsed to an
+  AST so LLM10/LLM05 key on real call nodes and dataflow, not line proximity (a
+  string or comment mentioning `.create()` is no longer flagged). TypeScript/JSX
+  falls back to regex automatically.
+- **Re-export chains** — `from pkg import f` resolves through a `pkg/__init__.py`
+  that re-exports `f` from a submodule; package imports resolve to `__init__`.
+
+### Performance
+- Cross-module index build ~2× faster (90s → ~47s on a 3,832-file repo): functions
+  with no sink/prompt skip the expensive per-parameter dataflow analysis.
+
 ### Changed
 - **Cross-module import resolution by relative module path** (not filename stem):
   ambiguous imports (two files sharing a name) are left unresolved rather than linked

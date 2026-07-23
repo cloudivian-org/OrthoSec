@@ -382,9 +382,19 @@ def reachable_tool_sinks(tree: ast.AST, source_lines: list[str]):
     return results
 
 
+def _has_taint_sink(fn: ast.AST) -> bool:
+    """Cheap single-walk check: does the function contain any dangerous sink call?"""
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and _taint_sink_capability(node):
+            return True
+    return False
+
+
 def _dangerous_params(fn: ast.AST, source_lines: list[str]) -> tuple[set[str], list[str]]:
     """Params of `fn` that, if tainted, reach a dangerous sink inside `fn`."""
     params = [a.arg for a in fn.args.args] + [a.arg for a in getattr(fn.args, "kwonlyargs", [])]
+    if not params or not _has_taint_sink(fn):     # fast path: most functions have no sink
+        return set(), params
     dangerous = set()
     for p in params:
         if _sinks_with_taint(fn, _propagate(fn, {p}), source_lines):
@@ -539,9 +549,25 @@ def injection_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
     return out
 
 
+def _has_prompt_construction(fn: ast.AST) -> bool:
+    """Cheap single-walk check: does the function build a system prompt at all?"""
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign):
+            if any(_SYS_PROMPT_TARGET.search(nm)
+                   for t in node.targets for nm in _assigned_names(t)):
+                return True
+        elif isinstance(node, ast.Dict):
+            role, content = _dict_role_content(node)
+            if role == "system" and content is not None:
+                return True
+    return False
+
+
 def _prompt_building_params(fn: ast.AST, source_lines: list[str]) -> tuple[set[str], list[str]]:
     """Params of `fn` that, if untrusted, reach a system-prompt construction inside `fn`."""
     params = [a.arg for a in fn.args.args] + [a.arg for a in getattr(fn.args, "kwonlyargs", [])]
+    if not params or not _has_prompt_construction(fn):   # fast path
+        return set(), params
     dangerous = set()
     for p in params:
         seed = _propagate_with(fn, {p}, _expr_untrusted)

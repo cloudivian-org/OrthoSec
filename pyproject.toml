@@ -34,7 +34,9 @@ dependencies = []
 intel = ["anthropic>=0.40"]
 # Prettier console output; core falls back to plain text without it.
 pretty = ["rich>=13"]
-dev = ["pytest>=8", "anthropic>=0.40", "rich>=13"]
+# Precise JavaScript (.js) analysis via AST; TS/JSX falls back to regex.
+js = ["esprima>=4.0"]
+dev = ["pytest>=8", "anthropic>=0.40", "rich>=13", "esprima>=4.0"]
 
 [project.scripts]
 orthosec = "orthosec.cli:main"

@@ -53,17 +53,29 @@ def _modkey(root, path) -> ModKey:
     return (Path(path).stem,)
 
 
-def _resolve_module(all_keys, importer: ModKey, segs: list, level: int):
-    """Resolve an import target to a unique module key, or None if ambiguous/absent."""
+def _import_names(mk: ModKey):
+    """The path(s) an import can name this module by: itself, and — for a package
+    __init__ — the package path (so `from pkg import x` finds pkg/__init__.py)."""
+    yield mk
+    if mk and mk[-1] == "__init__":
+        yield mk[:-1]
+
+
+def _resolve_module(name_paths, importer: ModKey, segs: list, level: int):
+    """Resolve an import target to a unique module key, or None if ambiguous/absent.
+    `name_paths` is a list of (nameable_path, modkey)."""
     if level and level > 0:                        # relative: from .a.b import ...
-        pkg = importer[:-level] if level <= len(importer) else ()
-        target = tuple(pkg) + tuple(segs)
-        return target if target in all_keys else None
+        base = importer[:-level] if level <= len(importer) else ()
+        target = tuple(base) + tuple(segs)
+        for npath, mk in name_paths:
+            if npath == target:
+                return mk
+        return None
     if not segs:
         return None
-    segt = tuple(segs)                             # absolute: match a module ending with segs
-    cands = [k for k in all_keys if k[-len(segt):] == segt]
-    return cands[0] if len(cands) == 1 else None   # unambiguous only
+    segt = tuple(segs)                             # absolute: unique module named by segs (suffix)
+    cands = {mk for npath, mk in name_paths if npath[-len(segt):] == segt}
+    return next(iter(cands)) if len(cands) == 1 else None
 
 
 def build_index(ctx) -> ProjectIndex:
@@ -89,25 +101,46 @@ def build_index(ctx) -> ProjectIndex:
                 idx.summaries[(mk, name)] = _FuncSummary(params, sink_params, prompt_params)
         parsed.append((mk, tree))
 
-    all_keys = set(idx.modules.keys())
+    name_paths = [(np, mk) for mk in idx.modules for np in _import_names(mk)]
     for mk, tree in parsed:                        # second pass: resolve imports
         imap: dict = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 segs = (node.module or "").split(".") if node.module else []
-                target = _resolve_module(all_keys, mk, segs, node.level or 0)
+                target = _resolve_module(name_paths, mk, segs, node.level or 0)
                 if target is None:
                     continue
                 for alias in node.names:
                     imap[alias.asname or alias.name] = (target, alias.name)
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    target = _resolve_module(all_keys, mk, alias.name.split("."), 0)
+                    target = _resolve_module(name_paths, mk, alias.name.split("."), 0)
                     if target is not None:
                         base = alias.asname or alias.name.split(".")[-1]
                         imap["mod:" + base] = (target, "*")
         idx.imports[mk] = imap
+
+    _flatten_reexports(idx)                         # third pass: follow re-export chains
     return idx
+
+
+def _flatten_reexports(idx: ProjectIndex) -> None:
+    """Follow `from .x import f` re-exports so an import of a name that is only
+    re-exported by the target module resolves to where `f` is actually defined."""
+    for mk, imap in idx.imports.items():
+        for alias, (tmod, func) in list(imap.items()):
+            if func == "*":
+                continue
+            seen = {(tmod, func)}
+            for _ in range(6):                      # bounded — avoid import cycles
+                if (tmod, func) in idx.func_nodes:
+                    break
+                nxt = idx.imports.get(tmod, {}).get(func)
+                if not nxt or nxt[1] == "*" or nxt in seen:
+                    break
+                tmod, func = nxt
+                seen.add((tmod, func))
+            imap[alias] = (tmod, func)
 
 
 def get_index(ctx) -> ProjectIndex:

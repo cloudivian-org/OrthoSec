@@ -86,8 +86,22 @@ class OutputHandlingDetector:
             )
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
-        lines = strip_comments(text).splitlines()
         raw_lines = text.splitlines()
+        if path.suffix.lower() == ".js":
+            from orthosec.analysis import js_ast
+            if js_ast.available():
+                hits = js_ast.output_findings(text)
+                if hits is not None:                 # parsed as JS — use AST taint
+                    for ln, cap in hits:
+                        yield Finding(
+                            detector=self.id, rule_id="ORTHO-OUTPUT-001",
+                            title=f"LLM output flows into {cap} without sanitization",
+                            severity=Severity.HIGH, owasp_llm="LLM05", atlas=["AML.T0051"],
+                            file=ctx.rel(path), line=ln,
+                            evidence=raw_lines[ln - 1].strip()[:200] if 0 < ln <= len(raw_lines) else "",
+                            remediation=_REMEDIATION, confidence=0.75)
+                    return
+        lines = strip_comments(text).splitlines()
         for lineno, line in enumerate(lines, start=1):
             for sink_name, pat in _SINKS.items():
                 if not pat.search(line):

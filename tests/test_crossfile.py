@@ -103,6 +103,20 @@ class TestCrossFile(unittest.TestCase):
         self.assertTrue(any(f.owasp_llm == "LLM05" and f.file == "app.py"
                             for f in Scanner().scan(d).findings))
 
+    def test_reexport_chain_resolves(self):
+        # pkg/__init__.py re-exports run_tool from pkg/tools; app imports `from pkg import run_tool`.
+        import os
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "pkg"))
+        Path(d, "pkg", "tools.py").write_text("import os\ndef run_tool(command):\n    os.system(command)\n")
+        Path(d, "pkg", "__init__.py").write_text("from .tools import run_tool\n")
+        Path(d, "app.py").write_text(
+            "from pkg import run_tool\n"
+            "def handle(client, q):\n"
+            "    r = client.messages.create(model='m', max_tokens=9, messages=[])\n"
+            "    run_tool(r.content)\n")
+        self.assertTrue(any(f.owasp_llm == "LLM05" and f.file == "app.py"
+                            for f in Scanner().scan(d).findings))
+
     def test_relative_import_resolves(self):
         import os
         d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "pkg"))
