@@ -2,6 +2,14 @@
 <p align="center"><b>The AI Security Architect</b><br>
 Technical AI-risk analysis with executive business context. Open source.</p>
 
+<p align="center">
+  <a href="https://pypi.org/project/orthosec/"><img src="https://img.shields.io/pypi/v/orthosec?color=2ea44f" alt="PyPI version"></a>
+  <a href="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml"><img src="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/pypi/pyversions/orthosec" alt="Python versions">
+  <img src="https://img.shields.io/badge/OWASP%20LLM%20Top--10-10%2F10-2ea44f" alt="OWASP LLM Top-10 coverage">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+</p>
+
 ---
 
 OrthoSec scans any AI product and answers two questions at once:
@@ -102,7 +110,9 @@ docker run --rm --env-file .env -v "$PWD:/scan" orthosec scan /scan --profile ci
 python -m orthosec.cli scan ./my-ai-app --html report.html
 ```
 
-**Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+**Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. A stacked severity bar and an OWASP LLM Top-10 coverage strip summarize posture at a glance, and a Print / Save-as-PDF button exports it. Open it in a browser, attach it to a ticket, or drop it in a board deck.
+
+**[▶ View a live sample report →](https://cloudivian-org.github.io/OrthoSec/)** (generated from the bundled vulnerable demo on every push).
 
 ## Scheduling — continuous & daily reports
 
@@ -164,7 +174,7 @@ OrthoSec matches behavioral patterns, not a specific framework — so it works o
 
 Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan/orthosec.sarif --fail-on high`.
 
-## What it detects today (v0.1)
+## What it detects today
 
 | Detector | OWASP LLM | Catches |
 |---|---|---|
@@ -251,20 +261,34 @@ Accuracy is measured, not asserted. A labeled corpus of vulnerable samples **and
 
 | | Precision | Recall | F1 |
 |---|---|---|---|
-| All 7 detectors, 30 cases | 100% | 100% | 100% |
+| All 10 detectors, 42 cases | 100% | 100% | 100% |
 
 Zero false positives on the safe look-alikes is the headline number — a scanner that cries wolf gets uninstalled. `tests/test_benchmark.py` enforces this as a **regression gate** (precision/recall ≥ 95%, FP = 0), so detection quality can't silently degrade. Methodology and honest limitations (obfuscation, cross-file dataflow, non-Python langs) are in [benchmark/README.md](benchmark/README.md). Adversarial cases welcome.
 
+## Data handling & privacy
+
+You are scanning your own source code, so egress matters. OrthoSec is offline by default:
+
+- **Deterministic core — 100% local.** Detectors, taint analysis, the posture score, and the HTML report run entirely on your machine. No network calls, no telemetry, nothing sent anywhere. The report is self-contained (no external requests when you open it).
+- **Intel layer — opt-in, findings metadata only.** The executive briefing is the *only* feature that calls an LLM. When enabled, it sends **finding metadata** (rule, OWASP/ATLAS category, severity, `file:line`, short evidence) to *your* configured provider — Anthropic or your own Azure AI Foundry endpoint, using *your* API key from `.env`. It does not upload your files or repository.
+- **Fully offline:** `orthosec scan --no-exec` disables the intel layer completely — zero provider calls.
+- **No account, no phone-home.** OrthoSec never contacts an OrthoSec-operated server.
+
+## Known limitations
+
+Static analysis is honest about what it can and can't see:
+
+- **TypeScript / JSX is regex-only.** Python has full AST taint tracking (intra-, inter-, and cross-module); plain `.js` gets an optional AST path (`orthosec[js]`, esprima). `.ts`/`.tsx` fall back to pattern matching — lower precision on TS codebases. Full TS AST is on the roadmap.
+- **Detectors reason about code, not runtime.** Tainted data reaching a sink through a database, queue, or network round-trip that OrthoSec can't follow may be missed.
+- **The intel layer explains, it never invents.** The business/compliance narrative is grounded in the deterministic findings; with `--no-exec` you lose the narrative, never a finding.
+
+Found a false positive or a miss? That's the most valuable issue you can file — see [benchmark/README.md](benchmark/README.md).
+
 ## Roadmap
 
-- **v0.1 — Static scanner** — point it at any repo, zero runtime coupling.
-- **v0.2 — Multi-profile + provider-agnostic intel** — engineer/appsec/ciso/product views, 6 detectors, Anthropic + Azure Foundry backends, Docker, `.env`.
-- **v0.3 — Integration + visual report** — `.orthosec.yml`, GitHub Action, self-contained HTML report.
-- **v0.4 — Remediation agents** — per-finding fix agents; manual plans + opt-in LLM auto-fix; remediation UI in the report.
-- **v0.5 — Runtime guard + LLM10 + release** — `@guard` SDK (Python + Node), unbounded-consumption detector, richer compliance packs (ISO 27001 / NIST CSF).
-- **v0.6 — Runtime gateway + distribution** — inline `orthosec proxy` (block/monitor), pre-commit hook, published to PyPI (`pip install orthosec`), npm packaging ready.
-- **v0.7 — AST dataflow + measured accuracy** *(in `main`, unreleased)* — Python AST taint tracking for all three dataflow-shaped detectors (LLM01 untrusted-input→prompt, LLM05 output→sink, LLM06 sink-in-tool); detection-efficacy benchmark at 100% precision/recall with an 11-case adversarial set as a regression gate.
-- **Backlog** — cut 0.6.1 to ship the AST upgrades to PyPI; publish `@orthosec/guard` to npm; interprocedural + cross-file taint; JS/TS AST path; GitHub Marketplace listing; PDF report export; managed dashboard.
+- **Shipped** — static scanner; four audience profiles; provider-agnostic intel (Anthropic + Azure Foundry); self-contained HTML report with remediation agents; runtime guard (`@guard`, Python + Node) and inline `orthosec proxy`; scheduling. **Full OWASP LLM Top-10 coverage** (10 detectors) with Python AST taint tracking (intra-, inter-, and cross-module) for LLM01/05/06; baseline + inline suppression; `--diff` PR scanning; SARIF with stable fingerprints; PR-native GitHub Action. Published to PyPI (`pip install orthosec`) and npm (`@orthosec/guard`).
+- **Next** — TypeScript/JSX AST (close the last language gap); GitHub Marketplace listing; PDF export from the HTML report.
+- **Later** — managed dashboard; more compliance packs; org-wide baselines.
 
 ## Architecture
 
@@ -274,7 +298,7 @@ Zero false positives on the safe look-alikes is the headline number — a scanne
 
 ## Status
 
-Pre-release, building toward product-market fit. Feedback, issues, and detector contributions are the whole point right now — [open an issue](https://github.com/orthosec/orthosec/issues).
+Pre-release, building toward product-market fit. Feedback, issues, and detector contributions are the whole point right now — [open an issue](https://github.com/cloudivian-org/OrthoSec/issues). See [SECURITY.md](SECURITY.md) to report a vulnerability privately, and [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
 ## License
 

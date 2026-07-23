@@ -1,0 +1,52 @@
+# Publishes a live sample OrthoSec HTML report to GitHub Pages.
+# The report is generated fresh from the bundled vulnerable demo on every push,
+# so the published page is always a real product output, never a stale mock.
+#
+# One-time setup: repo Settings -> Pages -> Build and deployment -> Source:
+#   "GitHub Actions". Then the page is served at
+#   https://cloudivian-org.github.io/OrthoSec/
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OrthoSec
+        run: pip install -e .
+
+      - name: Generate sample report
+        run: |
+          mkdir -p _site
+          orthosec scan examples/vulnerable-agent \
+            --profile appsec --fail-on none --no-exec \
+            --html _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

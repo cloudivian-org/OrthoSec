@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use OrthoSec in your work, please cite it as below."
+title: "OrthoSec: The AI Security Architect"
+abstract: >-
+  OrthoSec is an open-source AI security scanner. Deterministic detectors map
+  findings in AI/LLM applications to the OWASP LLM Top-10 and MITRE ATLAS, and a
+  grounded intel layer translates them into business risk and compliance exposure.
+type: software
+authors:
+  - family-names: Kumar
+    given-names: Vikas
+repository-code: "https://github.com/cloudivian-org/OrthoSec"
+url: "https://github.com/cloudivian-org/OrthoSec"
+license: Apache-2.0
+keywords:
+  - ai-security
+  - llm-security
+  - owasp-llm-top-10
+  - mitre-atlas
+  - static-analysis
+  - prompt-injection

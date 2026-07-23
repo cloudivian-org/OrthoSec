@@ -53,6 +53,22 @@ npm install @orthosec/guard
 The package is pure ESM with bundled `.d.ts` types and zero dependencies;
 `npm test` runs the node:test suite.
 
+## Automated PyPI release (Trusted Publishing / OIDC)
+
+`.github/workflows/release.yml` includes a `publish-pypi` job that builds and
+uploads to PyPI with **no API token stored in the repo** — it authenticates via
+OpenID Connect. It runs when you publish a GitHub Release.
+
+One-time setup on PyPI (Account → Publishing → Add a pending publisher):
+
+- **PyPI project:** `orthosec`
+- **Owner:** `cloudivian-org`  ·  **Repository:** `OrthoSec`
+- **Workflow:** `release.yml`  ·  **Environment:** `pypi`
+
+After that, cutting a GitHub Release publishes to PyPI automatically. Until the
+trusted publisher is configured, keep publishing manually with a token (`twine
+upload`) as above — don't do both for the same version (PyPI rejects duplicates).
+
 ## Versioning
 
 Bump `version` in `pyproject.toml` and `sdk/js/package.json` together, update
