@@ -22,9 +22,17 @@ _PATTERNS = {
     "HuggingFace token": re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),
     "Slack token": re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
     "Generic assigned secret": re.compile(
-        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"\s]{12,}['\"]"
+        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"]([^'\"\s]{12,})['\"]"
     ),
 }
+
+# Values that are variable/env NAMES or references, not actual secrets. Real keys
+# carry entropy (digits + mixed case); a pure identifier or a config-word field name
+# is not a leak. Catches: openai_api_key, apiKey, OPENAI_API_KEY, ${VAR}, process.env.X.
+_ENV_NAMEISH = re.compile(
+    r"(?i)(^[A-Za-z][A-Za-z_]*$)"                                 # pure identifier, no digits
+    r"|(_(name|key|secret|token|password|id|url|host|env|field))$"  # trailing config word
+    r"|^(process\.env|os\.environ|import\.meta|\$\{|\$[A-Za-z]|fields?\.|config\.)")
 
 # Obvious placeholders we should not flag as real leaks.
 _PLACEHOLDER = re.compile(r"(?i)(your|example|placeholder|dummy|xxx|\.\.\.|<[^>]+>|changeme|test)")
@@ -78,6 +86,9 @@ class SecretsDetector:
                     if _PLACEHOLDER.search(hit):
                         continue
                     generic = kind.startswith("Generic")
+                    # Generic matches often catch env-var names, not real secrets.
+                    if generic and _ENV_NAMEISH.search(m.group(2) or ""):
+                        continue
                     if test_ctx:
                         sev = Severity.LOW
                     else:

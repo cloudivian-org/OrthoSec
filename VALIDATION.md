@@ -38,6 +38,18 @@ Shallow clones, scanned with `orthosec scan <repo> --no-exec`.
 - **AutoGPT** `util/cache.py:252` — `pickle.loads(payload)` unsafe deserialization (LLM03).
 - **AutoGPT** `agent_bench.py:572` — `eval(expr)` code-execution sink (LLM05).
 
+## Round 2 — more repos, more hardening
+
+Scanned three more (llama_index 3,832 py; langchain**js** 2,147 js/ts; chroma) — **still zero crashes**, and three more false-positive classes found and fixed:
+
+| Symptom (real example) | Fix |
+|---|---|
+| `apiKey: "OPENAI_API_KEY"` / `"openai_api_key"` flagged as a secret | reject env-var **names** / pure identifiers (no entropy) in the generic rule — langchainjs secrets 99 → 14 |
+| a bundled `algolia.js:7251` search key | skip `*.min.js`, bundles, lockfiles, `.map`, `_static`/`dist`/`.next`/`vendor` dirs |
+| `self._llm.complete(x)` in library internals (llama_index ×177) | per-call-cap LLM10 on a bare `.complete()`/`.generate()` → **LOW** (cap is usually on the client); explicit `.create` chains stay MEDIUM |
+
+Also hardened cross-module import resolution: two files sharing a name (`utils.py`) no longer link to the wrong one — an ambiguous import is left **unresolved** (a miss, never a wrong-file false positive), while `from a.utils import ...` and relative imports still resolve.
+
 ## Honest scope
 
 This is a hardening loop, not a published precision figure. Triage is partly

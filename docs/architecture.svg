@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 812" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <style>
+      .lbl{fill:#8a97a6;font-size:11px;font-weight:800;letter-spacing:.14em}
+      .h{fill:#0f1720;font-size:14px;font-weight:750}
+      .s{fill:#5b6673;font-size:11.5px}
+      .tag{fill:#0b6f65;font-size:11px;font-weight:700}
+      .box{fill:#ffffff;stroke:#e4e9f0;stroke-width:1.5;rx:13}
+      .lane{fill:#f5f8fb;stroke:#e7edf3;stroke-width:1.5;rx:18}
+      .accent{fill:#0f9e8f}
+    </style>
+    <marker id="arw" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#9aa6b2"/>
+    </marker>
+    <filter id="sh" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0f1720" flood-opacity="0.06"/>
+    </filter>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#effaf8"/><stop offset="1" stop-color="#e7f6f2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- card -->
+  <rect x="0" y="0" width="1060" height="812" rx="22" fill="#fbfcfe" stroke="#e4e9f0" stroke-width="1.5"/>
+
+  <!-- title -->
+  <text x="34" y="46" font-size="23" font-weight="800" fill="#0f1720" letter-spacing="-.5">Ortho<tspan fill="#0f9e8f">Sec</tspan><tspan fill="#5b6673" font-weight="600" font-size="15"> — Architecture</tspan></text>
+  <text x="34" y="66" class="s">The AI Security Architect · one taxonomy (OWASP LLM Top-10 + MITRE ATLAS) from static scan to runtime defense</text>
+
+  <!-- 1 INTEGRATE -->
+  <text x="34" y="98" class="lbl">1 · INTEGRATE — ANY AI PRODUCT</text>
+  <g filter="url(#sh)">
+    <rect x="34" y="108" width="470" height="72" class="box" rx="13"/>
+    <text x="52" y="134" class="h">Any AI product</text>
+    <text x="52" y="153" class="s">LangChain · LlamaIndex · raw SDK · agents · MCP</text>
+    <text x="52" y="170" class="s">Python &amp; JavaScript / TypeScript</text>
+  </g>
+  <g filter="url(#sh)">
+    <rect x="556" y="108" width="470" height="72" class="box" rx="13"/>
+    <text x="574" y="134" class="h">Entry points</text>
+    <text x="574" y="153" class="s">CLI · <tspan class="mono">.orthosec.yml</tspan> · pre-commit hook</text>
+    <text x="574" y="170" class="s">GitHub Action · Docker · Python / JS API</text>
+  </g>
+  <line x1="530" y1="144" x2="552" y2="144" stroke="#9aa6b2" stroke-width="1.6" marker-end="url(#arw)"/>
+  <line x1="530" y1="144" x2="508" y2="144" stroke="#9aa6b2" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- down arrow -->
+  <line x1="530" y1="182" x2="530" y2="206" stroke="#9aa6b2" stroke-width="1.8" marker-end="url(#arw)"/>
+
+  <!-- 2 DETERMINISTIC CORE -->
+  <g filter="url(#sh)">
+    <rect x="34" y="212" width="992" height="150" rx="18" fill="url(#core)" stroke="#bfe7e0" stroke-width="1.6"/>
+  </g>
+  <text x="52" y="236" class="lbl" fill="#0b6f65">2 · DETERMINISTIC CORE — STDLIB, NO API KEY</text>
+
+  <g filter="url(#sh)"><rect x="52" y="250" width="214" height="94" class="box" rx="12"/></g>
+  <text x="68" y="276" class="h">Detectors ×7</text>
+  <text x="68" y="296" class="s">prompt-injection · secrets</text>
+  <text x="68" y="312" class="s">unsafe-load · output-handling</text>
+  <text x="68" y="328" class="s">tool-exposure · RAG · unbounded</text>
+
+  <g filter="url(#sh)"><rect x="296" y="250" width="200" height="94" class="box" rx="12"/></g>
+  <text x="312" y="276" class="h">Findings</text>
+  <text x="312" y="298" class="s">evidence · <tspan class="mono">file:line</tspan></text>
+  <text x="312" y="316" class="s">OWASP LLM + MITRE</text>
+  <text x="312" y="332" class="s">ATLAS mapping</text>
+
+  <g filter="url(#sh)"><rect x="526" y="250" width="238" height="94" class="box" rx="12" stroke="#0f9e8f" stroke-width="1.8"/></g>
+  <text x="542" y="276" class="h">AST taint / dataflow</text>
+  <text x="542" y="298" class="s">traces real data, not proximity</text>
+  <text x="542" y="316" class="tag">intra · interprocedural</text>
+  <text x="542" y="332" class="tag">· cross-module</text>
+
+  <g filter="url(#sh)"><rect x="794" y="250" width="214" height="94" class="box" rx="12"/></g>
+  <text x="810" y="276" class="h">Posture score</text>
+  <text x="810" y="298" class="s">non-gameable 0–100</text>
+  <text x="810" y="316" class="s">letter grade A–F</text>
+  <text x="810" y="332" class="s">gated at 100% / 0 FP</text>
+
+  <line x1="266" y1="297" x2="294" y2="297" stroke="#9aa6b2" stroke-width="1.6" marker-end="url(#arw)"/>
+  <line x1="496" y1="297" x2="524" y2="297" stroke="#9aa6b2" stroke-width="1.6" marker-end="url(#arw)"/>
+  <line x1="764" y1="297" x2="792" y2="297" stroke="#9aa6b2" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- branches down to intel + remediation -->
+  <line x1="396" y1="364" x2="396" y2="398" stroke="#9aa6b2" stroke-width="1.8" marker-end="url(#arw)"/>
+  <line x1="664" y1="364" x2="664" y2="398" stroke="#9aa6b2" stroke-width="1.8" marker-end="url(#arw)"/>
+
+  <!-- 3 INTEL + REMEDIATION -->
+  <text x="34" y="392" class="lbl">3 · INTERPRET &amp; FIX — grounded, never invents findings</text>
+
+  <g filter="url(#sh)"><rect x="34" y="404" width="490" height="110" rx="14" fill="#fdf7e9" stroke="#ecd79a" stroke-width="1.6" stroke-dasharray="6 4"/></g>
+  <text x="52" y="430" class="h" fill="#7a5b12">Intel — grounded LLM</text>
+  <text x="52" y="452" class="s">Business $ risk (annualized loss bands)</text>
+  <text x="52" y="470" class="s">Compliance — EU AI Act · NIST AI RMF · ISO 42001 · ISO 27001 · NIST CSF · SOC 2</text>
+  <text x="52" y="488" class="s">Executive briefing + free-form Q&amp;A</text>
+  <text x="52" y="506" class="s" fill="#a07a1e">Claude via Anthropic API or Azure AI Foundry · degrades offline</text>
+
+  <g filter="url(#sh)"><rect x="536" y="404" width="490" height="110" rx="14" fill="#eef4fc" stroke="#b7d2f0" stroke-width="1.6"/></g>
+  <text x="554" y="430" class="h" fill="#1f4e79">Remediation agents</text>
+  <text x="554" y="452" class="s">Per-finding agent + deterministic fix plan (manual)</text>
+  <text x="554" y="470" class="s">Opt-in LLM auto-fix — minimal patch, <tspan class="mono">.orig</tspan> backup</text>
+  <text x="554" y="488" class="s">Prompt Boundary · Agency Gate · Safe Loader ·</text>
+  <text x="554" y="506" class="s">Output Sanitizer · Provenance · Rate Limiter · Secret Rotation</text>
+
+  <line x1="280" y1="516" x2="280" y2="548" stroke="#9aa6b2" stroke-width="1.8" marker-end="url(#arw)"/>
+  <line x1="780" y1="516" x2="780" y2="548" stroke="#9aa6b2" stroke-width="1.8" marker-end="url(#arw)"/>
+
+  <!-- 4 DELIVER -->
+  <text x="34" y="542" class="lbl">4 · DELIVER</text>
+  <g filter="url(#sh)"><rect x="34" y="554" width="320" height="96" class="box" rx="13"/></g>
+  <text x="52" y="580" class="h">Reports &amp; views</text>
+  <text x="52" y="601" class="s">console · JSON · SARIF · HTML (auto)</text>
+  <text x="52" y="619" class="s">profiles: engineer · appsec ·</text>
+  <text x="52" y="637" class="s">ciso · product</text>
+
+  <g filter="url(#sh)"><rect x="370" y="554" width="320" height="96" class="box" rx="13"/></g>
+  <text x="388" y="580" class="h">Schedule</text>
+  <text x="388" y="601" class="s"><tspan class="mono">orthosec watch</tspan> — daily / continuous</text>
+  <text x="388" y="619" class="s"><tspan class="mono">latest.html</tspan> + timestamped reports</text>
+  <text x="388" y="637" class="s">crontab · CI · systemd snippets</text>
+
+  <g filter="url(#sh)"><rect x="706" y="554" width="320" height="96" class="box" rx="13" stroke="#0f9e8f" stroke-width="1.8"/></g>
+  <text x="724" y="580" class="h">Runtime defense</text>
+  <text x="724" y="601" class="s">SDK guard — Python + Node</text>
+  <text x="724" y="619" class="s">inline proxy gateway (block / monitor)</text>
+  <text x="724" y="637" class="s">catches injection at call time</text>
+
+  <!-- legend -->
+  <line x1="34" y1="686" x2="1026" y2="686" stroke="#e7edf3" stroke-width="1.5"/>
+  <g transform="translate(34,706)">
+    <rect x="0" y="-9" width="26" height="14" rx="4" fill="#e7f6f2" stroke="#0f9e8f" stroke-width="1.6"/>
+    <text x="34" y="2" class="s">Deterministic — evidence-backed, reproducible</text>
+    <rect x="330" y="-9" width="26" height="14" rx="4" fill="#fdf7e9" stroke="#ecd79a" stroke-width="1.6" stroke-dasharray="5 3"/>
+    <text x="366" y="2" class="s">LLM-grounded — explains &amp; drafts, never invents a finding</text>
+    <text x="760" y="2" class="s" fill="#8a97a6">Zero external requests · stdlib core · Apache-2.0</text>
+  </g>
+</svg>

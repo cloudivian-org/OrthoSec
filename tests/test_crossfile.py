@@ -73,6 +73,47 @@ class TestCrossFile(unittest.TestCase):
         findings = Scanner().scan(d).findings
         self.assertFalse(any(f.owasp_llm == "LLM05" for f in findings))
 
+    def test_stem_collision_is_not_linked(self):
+        # Two files named utils.py: an ambiguous `from utils import run` must NOT link
+        # to the dangerous one (a wrong-file link would be a false positive).
+        import os
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "a")); os.makedirs(os.path.join(d, "b"))
+        Path(d, "a", "utils.py").write_text("import os\ndef run(command):\n    os.system(command)\n")
+        Path(d, "b", "utils.py").write_text("def run(x):\n    return x\n")
+        Path(d, "app.py").write_text(
+            "from utils import run\n"
+            "def handle(client, q):\n"
+            "    r = client.messages.create(model='m', max_tokens=9, messages=[])\n"
+            "    run(r.content)\n")
+        self.assertFalse(any(f.owasp_llm == "LLM05" and f.file == "app.py"
+                             for f in Scanner().scan(d).findings))
+
+    def test_dotted_import_disambiguates(self):
+        import os
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "a")); os.makedirs(os.path.join(d, "b"))
+        Path(d, "a", "utils.py").write_text("import os\ndef run(command):\n    os.system(command)\n")
+        Path(d, "b", "utils.py").write_text("def run(x):\n    return x\n")
+        Path(d, "app.py").write_text(
+            "from a.utils import run\n"
+            "def handle(client, q):\n"
+            "    r = client.messages.create(model='m', max_tokens=9, messages=[])\n"
+            "    run(r.content)\n")
+        self.assertTrue(any(f.owasp_llm == "LLM05" and f.file == "app.py"
+                            for f in Scanner().scan(d).findings))
+
+    def test_relative_import_resolves(self):
+        import os
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "pkg"))
+        Path(d, "pkg", "helpers.py").write_text("import os\ndef sink(command):\n    os.system(command)\n")
+        Path(d, "pkg", "app.py").write_text(
+            "from .helpers import sink\n"
+            "def handle(client, q):\n"
+            "    r = client.messages.create(model='m', max_tokens=9, messages=[])\n"
+            "    sink(r.content)\n")
+        self.assertTrue(any(f.owasp_llm == "LLM05" for f in Scanner().scan(d).findings))
+
 
 if __name__ == "__main__":
     unittest.main()

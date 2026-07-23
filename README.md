@@ -240,50 +240,9 @@ Zero false positives on the safe look-alikes is the headline number — a scanne
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph IN["Integration — any AI product"]
-        A["Target AI app<br/>LangChain · LlamaIndex · raw SDK · agents · MCP"]
-        CFG[".orthosec.yml"]
-        CI["GitHub Action / CI"]
-    end
-
-    A --> DET
-    CFG -. config .-> DET
-    CI -. invokes .-> DET
-
-    subgraph CORE["Deterministic core (stdlib, no key)"]
-        DET["Detectors<br/>OWASP LLM Top-10 + MITRE ATLAS"]
-        F["Findings<br/>evidence · file:line · taxonomy"]
-        SCORE["Risk scoring<br/>posture 0–100"]
-        DET --> F --> SCORE
-    end
-
-    subgraph INTEL["Intel layer — grounded, never invents findings"]
-        BR["Business $risk"]
-        COMP["Compliance mapping<br/>EU AI Act · NIST · ISO 42001 · SOC 2"]
-        NARR["Executive briefing + Q&A<br/>Claude · Anthropic / Azure Foundry"]
-    end
-
-    subgraph REM["Remediation agents"]
-        PLAN["Deterministic fix plan"]
-        AUTO["Opt-in LLM auto-fix<br/>manual · auto (--auto)"]
-        PLAN --> AUTO
-    end
-
-    F --> BR & COMP & NARR
-    F --> PLAN
-
-    subgraph OUT["Outputs"]
-        RPT["Console · JSON · SARIF · HTML"]
-        VIEWS["Profiles: engineer · appsec · ciso · product"]
-    end
-
-    SCORE --> RPT
-    BR & COMP & NARR --> RPT
-    PLAN --> RPT
-    RPT --> VIEWS
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="OrthoSec architecture" width="100%">
+</p>
 
 ## Status
 

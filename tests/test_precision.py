@@ -86,6 +86,41 @@ class TestSecretTestPath(unittest.TestCase):
         self.assertTrue(any(f.owasp_llm == "LLM02" and f.severity.name == "CRITICAL" for f in findings))
 
 
+class TestSecretNamePrecision(unittest.TestCase):
+    def test_env_var_name_not_secret(self):
+        for val in ('OPENAI_API_KEY', 'openai_api_key', 'MY_SECRET_NAME', 'apiKey'):
+            src = f'const x = {{ apiKey: "{val}" }}\n'
+            self.assertNotIn("LLM02", _cats(_scan(src, "t.ts")),
+                             msg=f"{val!r} should not be flagged as a secret")
+
+    def test_real_generic_secret_flagged(self):
+        # A high-entropy value assigned to a secret field is still caught.
+        src = 'api_key = "aB3xK9mZ2pQ7rT5w"\n'
+        self.assertIn("LLM02", _cats(_scan(src)))
+
+
+class TestLLM10Severity(unittest.TestCase):
+    def test_bare_complete_is_low(self):
+        src = "def f(self):\n    return self._llm.complete(prompt)\n"
+        sev = [f.severity.name for f in _scan(src) if f.owasp_llm == "LLM10"]
+        self.assertTrue(sev and all(s == "LOW" for s in sev))
+
+    def test_explicit_provider_call_is_medium(self):
+        src = "def f(client):\n    return client.chat.completions.create(model='x', messages=[])\n"
+        sev = [f.severity.name for f in _scan(src) if f.owasp_llm == "LLM10"]
+        self.assertIn("MEDIUM", sev)
+
+
+class TestBundleSkip(unittest.TestCase):
+    def test_minified_file_skipped(self):
+        import tempfile
+        from pathlib import Path
+        from orthosec.core.scanner import Scanner
+        d = tempfile.mkdtemp()
+        Path(d, "app.min.js").write_text('const k = "aB3xK9mZ2pQ7rT5w"; var api_key="aB3xK9mZ2pQ7rT5w";')
+        self.assertEqual(Scanner().scan(d).findings, [])
+
+
 class TestInnerHtmlPrecision(unittest.TestCase):
     def test_innerhtml_read_not_flagged(self):
         src = ("async function t() {\n"

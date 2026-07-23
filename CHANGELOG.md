@@ -16,10 +16,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   defaults are `.env`-controllable (`ORTHOSEC_WATCH_EVERY`, `ORTHOSEC_REPORT_DIR`,
   `ORTHOSEC_CRON`, `ORTHOSEC_PROFILE`); CLI flags override.
 
+### Changed
+- **Cross-module import resolution by relative module path** (not filename stem):
+  ambiguous imports (two files sharing a name) are left unresolved rather than linked
+  to the wrong file — no wrong-file false positives; `from a.b import` and relative
+  imports resolve. All three dataflow detectors now also cross-module (LLM06 added).
+- **Architecture diagram** is now a hand-drawn SVG (`docs/architecture.svg`), not Mermaid.
+
 ### Fixed (real-world validation hardening)
-Scanning AutoGPT, openai-cookbook, and anthropic-quickstarts (1,831 files, 0 crashes)
-surfaced and fixed five false-positive classes; findings dropped 257 -> 122 with the
-core benchmark still 100% / 0 FP. See `VALIDATION.md`. 13 new regression tests.
+Scanning AutoGPT, openai-cookbook, anthropic-quickstarts, llama_index, langchainjs,
+and chroma (~8,000 files, 0 crashes) surfaced and fixed **eight** false-positive
+classes; core benchmark still 100% / 0 FP. See `VALIDATION.md`. Round 1 (five):
+LLM10 non-calls (mock/string/docstring), DB `upsert` as RAG, `.execute()` as SQL,
+test-fixture secrets → LOW, `innerHTML` reads / doc files. Round 2 (three): env-var
+**names** flagged as secrets, bundled/minified/lockfile skipping, and bare
+`llm.complete()` LLM10 → LOW (cap usually on the client). 20+ precision regression tests.
 - LLM10 rewritten AST-based: ignores mock assignments, string literals, and docstrings
   that merely mention an LLM method (AutoGPT 117 -> 12).
 - rag-trust (LLM08) requires real vector-store context — no longer flags DB `upsert`.

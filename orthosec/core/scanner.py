@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -16,10 +17,14 @@ from orthosec.core.scoring import grade, posture_score
 
 # Files we never want to read (binaries, vendored, VCS, caches).
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
-              "dist", "build", ".idea", ".pytest_cache", "site-packages"}
+              "dist", "build", ".idea", ".pytest_cache", "site-packages", "_static",
+              ".next", "out", "vendor", "coverage", ".docusaurus", ".turbo", "target"}
 _TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".txt", ".md", ".json", ".yaml",
              ".yml", ".toml", ".env", ".cfg", ".ini", ".sh", ".ipynb", ".prompt"}
 _MAX_BYTES = 2_000_000  # skip files larger than 2MB
+# Build artifacts / bundles / lockfiles — not source; frequent false-positive sources.
+_SKIP_FILE = re.compile(r"(?i)(\.min\.(js|css)$|\.bundle\.|-lock\.json$|package-lock\.json$|"
+                        r"yarn\.lock$|\.map$|\.d\.ts$|\.chunk\.)")
 
 
 @dataclass
@@ -112,6 +117,8 @@ def _walk(root: Path, exclude: list[str] | None = None) -> Iterable[Path]:
         for fn in filenames:
             p = Path(dirpath) / fn
             if p.suffix.lower() not in _TEXT_EXT and p.name != ".env":
+                continue
+            if _SKIP_FILE.search(fn):          # bundles / minified / lockfiles / maps
                 continue
             rel = str(p.relative_to(root)) if p.is_relative_to(root) else str(p)
             if any(_excluded(rel, pat) for pat in exclude):

@@ -45,6 +45,13 @@ def _is_llm_completion(call: ast.Call) -> bool:
     return meth in _COMPLETION_METHODS and obj not in ("", "self")
 
 
+def _is_explicit_chain(call: ast.Call) -> bool:
+    """True for a direct provider call (chat.completions.create / messages.create /
+    responses.create) where a per-call cap clearly matters; False for a bare
+    llm.complete()/generate() where the cap is often on the client object."""
+    return isinstance(call.func, ast.Attribute) and _chain(call.func) in _COMPLETION_CHAINS
+
+
 def _has_cap(call: ast.Call) -> bool:
     return any(kw.arg in _CAP_KEYS for kw in call.keywords)
 
@@ -73,7 +80,7 @@ class UnboundedConsumptionDetector:
         lines = text.splitlines()
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and _is_llm_completion(node) and not _has_cap(node):
-                yield self._cap_finding(ctx, path, node.lineno, lines)
+                yield self._cap_finding(ctx, path, node.lineno, lines, _is_explicit_chain(node))
             elif isinstance(node, ast.While) and _is_true(node.test):
                 calls = [n for n in ast.walk(node)
                          if isinstance(n, ast.Call) and _is_llm_completion(n)]
@@ -89,12 +96,15 @@ class UnboundedConsumptionDetector:
                         confidence=0.55,
                     )
 
-    def _cap_finding(self, ctx, path, line, lines) -> Finding:
+    def _cap_finding(self, ctx, path, line, lines, explicit) -> Finding:
+        note = "" if explicit else "  (per-call cap; may be set on the client)"
         return Finding(
             detector=self.id, rule_id="ORTHO-CONSUME-001",
-            title="LLM call without an output-token cap", severity=Severity.MEDIUM,
+            title="LLM call without an output-token cap" + note,
+            severity=Severity.MEDIUM if explicit else Severity.LOW,
             owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=line,
-            evidence=_snip(lines, line), remediation=_CAP_FIX, confidence=0.6,
+            evidence=_snip(lines, line), remediation=_CAP_FIX,
+            confidence=0.6 if explicit else 0.45,
         )
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
