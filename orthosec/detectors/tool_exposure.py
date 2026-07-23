@@ -85,6 +85,7 @@ class ToolExposureDetector:
                 evidence=s.snippet,
                 remediation=_REMEDIATION,
                 confidence=0.6 if mitigated else 0.85,
+                metadata={"trace": s.trace} if s.trace else {},
             )
 
     # --- JS/TS: proximity regex -----------------------------------------

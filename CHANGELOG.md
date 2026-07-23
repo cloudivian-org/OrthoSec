@@ -5,6 +5,22 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 ## [Unreleased]
 
 ### Added
+- **Taint-path traces** — every dataflow finding (LLM01/05/06) now carries the
+  propagation chain (`source → flows-through → sink`), reconstructed from the AST.
+  Rendered as a "Data flow" block in the HTML report and as SARIF `codeFlows`, so
+  GitHub code scanning shows *how* tainted data reaches the sink, not just the sink
+  line. Turns "trust me" into a visible, reviewable path.
+- **Confidence surfaced + risk ranking** — findings are ordered by severity **then
+  detector confidence** (highest-signal first). The report shows a high/medium/low
+  confidence pill per finding; SARIF carries a `rank` (severity × confidence) so CI
+  can sort by risk.
+- **Deterministic code fixes** — `orthosec remediate --auto` now applies safe,
+  LLM-free fixes for well-understood cases (`torch.load` → `weights_only=True`,
+  `yaml.load` → `yaml.safe_load`) with a precise one-line edit — no API key needed,
+  fully reproducible. LLM-drafted patches remain the fallback for everything else.
+- **Fix verification** — after any applied fix, OrthoSec re-scans the file and reports
+  whether the finding is **RESOLVED** and whether the patch **introduced** new findings,
+  closing the remediation loop. `--no-verify` skips it.
 - **PR-native GitHub Action** — the bundled action is now a composite action that
   `pip install`s OrthoSec from PyPI (no Docker build). On a pull request it scans only
   the changed files (`--diff` vs the PR base SHA); on push it runs a full scan. Either

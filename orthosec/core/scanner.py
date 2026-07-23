@@ -112,7 +112,8 @@ class Scanner:
                 errors.append(f"{getattr(det, 'id', det)}: {exc!r}")
 
         findings = [f for f in findings if not _inline_suppressed(ctx, f)]
-        findings.sort(key=lambda f: (-f.severity.value, f.file, f.line))
+        # Rank by severity, then confidence (highest-signal first), then location.
+        findings.sort(key=lambda f: (-f.severity.value, -f.confidence, f.file, f.line))
         score = posture_score(findings)
         return ScanResult(
             root=str(root_path),

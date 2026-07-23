@@ -63,9 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     p_rem.add_argument("--rule", help="Comma-separated rule ids to target (default: all)")
     p_rem.add_argument("--agent", help="Only findings handled by this remediation agent id")
     p_rem.add_argument("--suggest", action="store_true",
-                       help="Include an LLM-drafted patch for review (no files written)")
+                       help="Show the patch for review (deterministic where possible; no files written)")
     p_rem.add_argument("--auto", action="store_true",
-                       help="Apply LLM-drafted patches in place (backs up originals to .orig)")
+                       help="Apply fixes in place (deterministic first, else LLM; backs up originals to .orig)")
+    p_rem.add_argument("--no-verify", action="store_true",
+                       help="Skip the re-scan that confirms an applied fix resolved the finding")
 
     # watch/schedule defaults are env-controllable (.env): ORTHOSEC_WATCH_EVERY,
     # ORTHOSEC_REPORT_DIR, ORTHOSEC_CRON, ORTHOSEC_PROFILE. Flags override env.
@@ -227,12 +229,20 @@ def _cmd_remediate(args) -> int:
         print("No matching findings to remediate.")
         return 0
 
+    from orthosec.remediation_fix import deterministic_fix, has_deterministic_fix
+
+    # Fingerprints present per file BEFORE any fix — the baseline for verification.
+    pre_fps: dict[str, set] = {}
+    for f in result.findings:
+        pre_fps.setdefault(f.file, set()).add(f.fingerprint)
+
     print(f"Remediation plan — {len(targets)} finding(s)\n")
     root = Path(result.root)
-    applied = 0
+    applied = resolved = regressed = 0
     for f in targets:
         a = agent_for(f)
-        mode = "auto-fixable" if a.auto_available else "manual only"
+        det = has_deterministic_fix(f)
+        mode = "deterministic auto-fix" if det else ("auto-fixable (LLM)" if a.auto_available else "manual only")
         print(f"● {f.rule_id}  {f.location}")
         print(f"    {f.title}")
         print(f"    agent: {a.name} ({a.id}) — {mode}")
@@ -240,24 +250,80 @@ def _cmd_remediate(args) -> int:
             print(f"      {i}. {step}")
 
         if args.suggest or args.auto:
-            patch = _draft_patch(f, root)
-            if patch is None:
-                print("    [no patch: set AZURE_API_KEY/ANTHROPIC_API_KEY + install orthosec[intel]]")
-            elif args.auto and a.auto_available:
-                applied += _apply_patch(root, f.file, patch)
+            new_text, kind = _build_fix(f, root)
+            if new_text is None:
+                if det:
+                    print("    [deterministic fix did not apply cleanly here]")
+                else:
+                    print("    [no patch: set AZURE_API_KEY/ANTHROPIC_API_KEY + install orthosec[intel]]")
+            elif args.auto and (kind == "deterministic" or a.auto_available):
+                applied += _apply_patch(root, f.file, new_text)
+                if not args.no_verify:
+                    ok, new_findings = _verify_fix(result, root, f, pre_fps.get(f.file, set()))
+                    resolved += 1 if ok else 0
+                    regressed += len(new_findings)
+                    _print_verify(ok, new_findings)
             elif args.auto:
                 print("    [skipped auto: this agent is manual-only for safety]")
             else:
-                print("    ── suggested patch (review; not written) ──")
-                for line in patch.splitlines()[:40]:
-                    print(f"    | {line}")
+                print(f"    ── suggested fix ({kind}; review, not written) ──")
+                _print_line_diff(f, root, new_text)
         print()
 
     if args.auto:
-        print(f"Applied {applied} patch(es). Originals backed up to *.orig. Review the diffs before committing.")
+        print(f"Applied {applied} fix(es); {resolved} verified resolved by re-scan"
+              + (f"; {regressed} new finding(s) introduced — review!" if regressed else "")
+              + ". Originals backed up to *.orig.")
     elif not args.suggest:
-        print("Run with --suggest to draft patches, or --auto to apply them (needs the intel layer).")
+        print("Run with --suggest to preview fixes, or --auto to apply them "
+              "(deterministic fixes need no API key; LLM fixes need the intel layer).")
     return 0
+
+
+def _build_fix(finding, root):
+    """(new_file_text, kind) — a deterministic fix if one applies, else an LLM draft."""
+    from pathlib import Path
+    from orthosec.remediation_fix import deterministic_fix
+    fpath = Path(root) / finding.file
+    if not fpath.is_file():
+        return None, "none"
+    source = fpath.read_text(encoding="utf-8", errors="replace")
+    det = deterministic_fix(finding, source)
+    if det is not None:
+        return det, "deterministic"
+    return _draft_patch(finding, root), "LLM"
+
+
+def _verify_fix(prev_result, root, finding, pre_fps_for_file):
+    """Re-scan the fixed file. Returns (resolved?, [new findings introduced])."""
+    from pathlib import Path
+    fpath = Path(root) / finding.file
+    post = Scanner().scan_files(root, [str(fpath)])
+    post_fps = {x.fingerprint for x in post.findings}
+    resolved = finding.fingerprint not in post_fps
+    new = [x for x in post.findings if x.fingerprint not in pre_fps_for_file]
+    return resolved, new
+
+
+def _print_verify(resolved, new_findings):
+    print("    ✓ re-scan: finding RESOLVED" if resolved
+          else "    ✗ re-scan: finding STILL PRESENT — review the fix")
+    for x in new_findings:
+        print(f"    ! re-scan: new {x.severity.name} finding introduced at {x.location} ({x.rule_id})")
+
+
+def _print_line_diff(finding, root, new_text):
+    from pathlib import Path
+    fpath = Path(root) / finding.file
+    old = fpath.read_text(encoding="utf-8", errors="replace").splitlines()
+    new = new_text.splitlines()
+    idx = finding.line - 1
+    if 0 <= idx < len(old) and idx < len(new) and old[idx] != new[idx]:
+        print(f"    | - {old[idx].strip()}")
+        print(f"    | + {new[idx].strip()}")
+    else:                                             # multi-line (LLM) patch — show a window
+        for line in new_text.splitlines()[:40]:
+            print(f"    | {line}")
 
 
 def _draft_patch(finding, root):

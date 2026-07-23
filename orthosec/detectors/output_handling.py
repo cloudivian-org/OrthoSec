@@ -82,7 +82,8 @@ class OutputHandlingDetector:
                 line=s.line,
                 evidence=s.snippet,
                 remediation=_REMEDIATION,
-                confidence=0.7,
+                confidence=0.8,
+                metadata={"trace": s.trace} if s.trace else {},
             )
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:

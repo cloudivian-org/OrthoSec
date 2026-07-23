@@ -35,9 +35,11 @@ def to_sarif(result: ScanResult, version: str = "0.1.0") -> dict:
                     "security-severity": _security_severity(f.severity),
                 },
             }
-        results.append({
+        entry = {
             "ruleId": f.rule_id,
             "level": _LEVEL[f.severity],
+            # rank (0-100) = severity band x detector confidence, so CI can sort by risk.
+            "rank": round(float(_security_severity(f.severity)) * 10 * f.confidence, 1),
             "message": {"text": f"{f.title}. {f.business_impact or ''} Fix: {f.remediation}".strip()},
             "locations": [{
                 "physicalLocation": {
@@ -48,7 +50,11 @@ def to_sarif(result: ScanResult, version: str = "0.1.0") -> dict:
             # Stable identity so GitHub code scanning dedupes across runs and line moves.
             "partialFingerprints": {"orthosecFingerprint/v1": f.fingerprint},
             "properties": {"owasp-llm": f.owasp_llm, "atlas": f.atlas, "confidence": f.confidence},
-        })
+        }
+        code_flow = _code_flow(f)
+        if code_flow:
+            entry["codeFlows"] = [code_flow]
+        results.append(entry)
 
     return {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
@@ -56,13 +62,33 @@ def to_sarif(result: ScanResult, version: str = "0.1.0") -> dict:
         "runs": [{
             "tool": {"driver": {
                 "name": "OrthoSec",
-                "informationUri": "https://github.com/orthosec/orthosec",
+                "informationUri": "https://github.com/cloudivian-org/OrthoSec",
                 "version": version,
                 "rules": list(rules.values()),
             }},
             "results": results,
         }],
     }
+
+
+def _code_flow(f) -> dict | None:
+    """A SARIF codeFlow rendering OrthoSec's dataflow trace (source -> sink), so GitHub
+    code scanning shows the propagation path, not just the sink line."""
+    trace = f.metadata.get("trace") or []
+    if not trace:
+        return None
+    locations = []
+    for step in trace:
+        locations.append({
+            "location": {
+                "physicalLocation": {
+                    "artifactLocation": {"uri": f.file},
+                    "region": {"startLine": max(1, step.get("line", f.line))},
+                },
+                "message": {"text": f"{step.get('role', '')}: {step.get('snippet', '')}".strip()},
+            }
+        })
+    return {"threadFlows": [{"locations": locations}]}
 
 
 def _security_severity(sev: Severity) -> str:

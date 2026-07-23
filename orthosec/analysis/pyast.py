@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Decorator names (last segment) that expose a function as a model tool.
 _TOOL_DECORATORS = {"tool", "function_tool", "beta_tool", "beta_async_tool", "ai_function"}
@@ -44,6 +44,54 @@ class Sink:
     capability: str
     line: int
     snippet: str
+    # Ordered dataflow trace (source -> hops -> sink): [{line, role, snippet}].
+    # Empty for non-dataflow (proximity/capability) sinks.
+    trace: list = field(default_factory=list)
+
+
+def _names_in(expr: ast.AST) -> set:
+    return {n.id for n in ast.walk(expr) if isinstance(n, ast.Name)}
+
+
+def _taint_trace(scope, used_names, tainted, sink_line, source_lines, max_steps=5):
+    """Best-effort backward slice: the assignments that carried taint from its
+    origin (a param or seed) down to the sink, as an ordered [{line, role, snippet}].
+    Approximate — provenance is reconstructed from the AST, not tracked live."""
+    def snip(ln):
+        return source_lines[ln - 1].strip()[:160] if 0 < ln <= len(source_lines) else ""
+
+    steps: dict = {}   # line -> role
+    want = {n for n in (used_names or ()) if n in (tainted or ())}
+    if want:
+        assigns = [n for n in ast.walk(scope)
+                   if isinstance(n, ast.Assign) and 0 < getattr(n, "lineno", 0) <= sink_line]
+        for _ in range(8):                       # expand the backward slice to a fixpoint
+            grew = False
+            for a in assigns:
+                tnames = [nm for t in a.targets for nm in _assigned_names(t)]
+                if any(nm in want for nm in tnames):
+                    if a.lineno not in steps:
+                        steps[a.lineno] = "propagates"
+                        grew = True
+                    for nm in _names_in(a.value):
+                        if nm not in want:
+                            want.add(nm)
+                            grew = True
+            if not grew:
+                break
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for arg in list(scope.args.args) + list(getattr(scope.args, "kwonlyargs", [])):
+                if arg.arg in want:
+                    steps[getattr(arg, "lineno", scope.lineno)] = "source"
+
+    trace = [{"line": ln, "role": role, "snippet": snip(ln)}
+             for ln, role in sorted(steps.items()) if ln != sink_line]
+    if len(trace) > max_steps:                    # keep the origin + the closest hops
+        trace = [trace[0]] + trace[-(max_steps - 1):]
+    if trace and not any(t["role"] == "source" for t in trace):
+        trace[0]["role"] = "source"
+    trace.append({"line": sink_line, "role": "sink", "snippet": snip(sink_line)})
+    return trace
 
 
 def _seg(node) -> str:
@@ -298,7 +346,11 @@ def _sinks_with_taint(scope: ast.AST, tainted: set[str], source_lines: list[str]
         if any(_refs_taint(a, tainted) for a in args):
             line = getattr(node, "lineno", 0)
             snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
-            sinks.append(Sink(cap + label, line, snippet))
+            used = set()
+            for a in args:
+                used |= {n for n in _names_in(a) if n in tainted}
+            sinks.append(Sink(cap + label, line, snippet,
+                              trace=_taint_trace(scope, used, tainted, line, source_lines)))
     return sinks
 
 
@@ -369,15 +421,23 @@ def reachable_tool_sinks(tree: ast.AST, source_lines: list[str]):
                         reach[name][k] = s
                         changed = True
 
+    def snip(ln):
+        return source_lines[ln - 1].strip()[:160] if 0 < ln <= len(source_lines) else ""
+
     tool_fns = find_tool_functions(tree)
     results = []
     seen = set()
     for name, fn in tool_fns.items():
         mitigated = has_confirmation(fn)
+        tool_line = getattr(fn, "lineno", 0)
         for k, s in reach.get(name, {}).items():
             if k in seen:
                 continue
             seen.add(k)
+            # Reachability trace: model-invokable tool -> the dangerous sink it can reach.
+            s.trace = [{"line": tool_line, "role": "tool",
+                        "snippet": f"tool `{name}` is model-invokable — " + snip(tool_line)},
+                       {"line": s.line, "role": "sink", "snippet": s.snippet}]
             results.append((s, mitigated, name))
     return results
 
@@ -439,8 +499,15 @@ def interprocedural_output_sinks(tree: ast.AST, source_lines: list[str]) -> list
             if hit and node.lineno not in seen:
                 line = node.lineno
                 snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""
+                used = set()
+                for a in list(node.args) + [kw.value for kw in node.keywords]:
+                    used |= {n for n in _names_in(a) if n in tainted}
+                trace = _taint_trace(scope, used, tainted, line, source_lines)
+                trace[-1]["role"] = "propagates"        # the call site forwards taint...
+                trace.append({"line": line, "role": "sink",              # ...into the helper's sink
+                              "snippet": f"passed to {fname}(), which sinks it"})
                 out.append(Sink(f"a helper that passes it to a dangerous sink (via {fname}())",
-                                line, snippet))
+                                line, snippet, trace=trace))
                 seen.add(line)
     return out
 
@@ -520,7 +587,10 @@ def _injection_in_scope(scope: ast.AST, untrusted: set[str], source_lines: list[
             if any(_SYS_PROMPT_TARGET.search(nm) for nm in names) \
                     and _refs_taint(node.value, untrusted):
                 if node.lineno not in seen:
-                    out.append(Sink(_MSG, node.lineno, snip(node.lineno)))
+                    used = {n for n in _names_in(node.value) if n in untrusted}
+                    out.append(Sink(_MSG, node.lineno, snip(node.lineno),
+                                    trace=_taint_trace(scope, used, untrusted,
+                                                       node.lineno, source_lines)))
                     seen.add(node.lineno)
                 flagged_vars.update(names)
     for node in ast.walk(scope):
@@ -533,7 +603,9 @@ def _injection_in_scope(scope: ast.AST, untrusted: set[str], source_lines: list[
             if _refs_taint(content, untrusted):
                 line = getattr(content, "lineno", node.lineno)
                 if line not in seen:
-                    out.append(Sink(_MSG, line, snip(line)))
+                    used = {n for n in _names_in(content) if n in untrusted}
+                    out.append(Sink(_MSG, line, snip(line),
+                                    trace=_taint_trace(scope, used, untrusted, line, source_lines)))
                     seen.add(line)
     return out
 

@@ -37,6 +37,8 @@ def _data(result: ScanResult, exec_summary: str | None) -> dict:
                 "rule_id": f.rule_id, "title": f.title, "severity": f.severity.name,
                 "sev_value": f.severity.value, "owasp": f.owasp_llm,
                 "owasp_name": owasp_name(f.owasp_llm), "atlas": f.atlas,
+                "confidence": round(f.confidence, 2),
+                "trace": f.metadata.get("trace", []),
                 "location": f.location, "evidence": f.evidence,
                 "remediation": f.remediation, "business": f.business_impact,
                 "agent": f.metadata.get("agent_name", "Manual Review Agent"),
@@ -154,6 +156,23 @@ _TEMPLATE = r"""<!doctype html>
     font-weight:650; padding:6px 12px; border-radius:8px; cursor:pointer; }
   .btnp:hover { color:var(--ink); border-color:var(--accent); }
   @media print { .tabs, .btnp, .actionbar { display:none !important; } body { background:#fff; } .finding, .card, .fw, .exec, .summary { box-shadow:none; } }
+  .conf { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; color:var(--muted);
+    text-transform:capitalize; padding:2px 8px; border:1px solid var(--line); border-radius:20px; white-space:nowrap; }
+  .conf .cdot { width:7px; height:7px; border-radius:50%; }
+  .flow { margin:10px 0 4px; border:1px solid var(--line); border-radius:9px; background:var(--panel2); overflow:hidden; }
+  .flow > summary { cursor:pointer; font-size:12px; font-weight:650; color:var(--ink); padding:8px 12px; list-style:none; }
+  .flow > summary::-webkit-details-marker { display:none; }
+  .flow > summary::before { content:"▸ "; color:var(--muted); }
+  .flow[open] > summary::before { content:"▾ "; }
+  .trow { display:flex; align-items:baseline; gap:8px; padding:5px 12px 5px 22px; border-top:1px solid var(--line);
+    position:relative; }
+  .trow::before { content:""; position:absolute; left:14px; top:0; bottom:0; width:2px; background:var(--line); }
+  .trole { font-size:10px; font-weight:750; letter-spacing:.03em; text-transform:uppercase; padding:1px 6px;
+    border-radius:5px; color:#fff; white-space:nowrap; flex:none; }
+  .trole-source { background:var(--high); } .trole-propagates { background:var(--muted); }
+  .trole-tool { background:var(--med); } .trole-sink { background:var(--crit); }
+  .tline { color:var(--muted); font-size:11px; flex:none; }
+  .tsnip { font-size:11.5px; color:var(--ink); overflow-wrap:anywhere; }
 
   h2.section { font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
     margin:32px 0 12px; font-weight:800; }
@@ -405,17 +424,28 @@ function renderCompliance(p){
     h+=`<div class="fw"><div class="name">${esc(fw.replace(/_/g," "))}</div><div class="ctrls">${pills}</div></div>`; }
   w.innerHTML=h+"</div>";
 }
+const CONF = c => c>=0.75 ? {t:"high",c:"var(--good)"} : c>=0.5 ? {t:"medium",c:"var(--med)"} : {t:"low",c:"var(--muted)"};
+const ROLE_LABEL = { source:"source", propagates:"flows through", tool:"model-invokable tool", sink:"dangerous sink" };
+function traceBlock(f){
+  if(!(f.trace||[]).length) return "";
+  const rows = f.trace.map(s=>`<div class="trow"><span class="trole trole-${s.role}">${ROLE_LABEL[s.role]||s.role}</span>`+
+    `<span class="tline mono">:${s.line}</span><code class="tsnip">${esc(s.snippet||"")}</code></div>`).join("");
+  return `<details class="flow" open><summary>Data flow — how tainted data reaches the sink</summary>${rows}</details>`;
+}
 function findingCard(f, p){
   const checked = selected.has(f.rule_id) ? "checked" : "";
   const mode = f.auto ? `<span class="mode auto">AUTO-FIXABLE</span>` : `<span class="mode manual">MANUAL</span>`;
+  const cf = CONF(f.confidence==null?0.8:f.confidence);
   let h=`<div class="finding${selected.has(f.rule_id)?" sel":""}" style="border-left-color:${SEV_COLOR[f.severity]}">
     <div class="fh">
       <input class="selbox" type="checkbox" data-rule="${esc(f.rule_id)}" ${checked} aria-label="Select for remediation">
       <span class="sev" style="background:${SEV_COLOR[f.severity]}">${f.severity}</span>
       <span class="grow"><span class="title">${esc(f.title)}</span></span>
+      <span class="conf" title="Detector confidence"><span class="cdot" style="background:${cf.c}"></span>${cf.t}</span>
       <span class="loc mono">${esc(f.location)}</span>
     </div>
     <div class="meta">OWASP ${esc(f.owasp)} (${esc(f.owasp_name)})${f.atlas.length?" · ATLAS "+esc(f.atlas.join(", ")):""}</div>`;
+  if(p.show_evidence) h+=traceBlock(f);
   if(p.show_evidence && f.evidence) h+=`<div class="kv"><b>evidence</b><code class="ev">${esc(f.evidence)}</code></div>`;
   if(p.show_business && f.business) h+=`<div class="kv"><b>business:</b> ${esc(f.business)}</div>`;
   if(p.show_remediation) h+=`<div class="kv"><b>fix:</b> ${esc(f.remediation)}</div>`;

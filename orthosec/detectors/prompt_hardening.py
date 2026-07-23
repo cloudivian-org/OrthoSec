@@ -80,6 +80,7 @@ class PromptHardeningDetector:
                 atlas=["AML.T0051", "AML.T0051.000"],
                 file=ctx.rel(path), line=s.line, evidence=s.snippet,
                 remediation=_PI001_FIX, confidence=0.7,
+                metadata={"trace": s.trace} if s.trace else {},
             )
         # Secret embedded in a system prompt — kept as a lexical check.
         yield from self._secret_in_prompt(ctx, path, lines)
