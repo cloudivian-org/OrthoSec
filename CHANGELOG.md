@@ -5,6 +5,14 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 ## [Unreleased]
 
 ### Added
+- **Full OWASP LLM Top-10 coverage** — added the last two dedicated detectors:
+  - **LLM07 `prompt-leakage`** — a system prompt written to logs / stdout (AST dataflow
+    for Python; `console.log` regex for JS). Returning the prompt to the LLM is not flagged.
+  - **LLM09 `misinformation`** (advisory, INFO) — ungrounded model output returned to
+    users in a **high-stakes domain** (medical / legal / financial). Gated to those
+    domains so it doesn't flood normal chatbots; static analysis can't judge truth,
+    so it's an advisory to add grounding, not a defect.
+  Now 10 detectors; benchmark 42 cases, 20/20, 0 FP across all ten categories.
 - **Baseline suppression** — `orthosec scan --write-baseline FILE` records current
   findings; `--baseline FILE` suppresses them so CI gates on **new** findings only.
   Matches by a stable fingerprint (rule + file + evidence, not line number), so

@@ -18,7 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from orthosec.core.scanner import Scanner  # noqa: E402
 
-CATEGORIES = ["LLM01", "LLM02", "LLM03", "LLM04", "LLM05", "LLM06", "LLM08", "LLM10"]
+CATEGORIES = ["LLM01", "LLM02", "LLM03", "LLM04", "LLM05", "LLM06", "LLM07",
+              "LLM08", "LLM09", "LLM10"]
 MIN_PRECISION = 0.95
 MIN_RECALL = 0.95
 

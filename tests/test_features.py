@@ -33,6 +33,41 @@ class TestLLM04(unittest.TestCase):
         self.assertNotIn("LLM04", {f.owasp_llm for f in _scan(src)})
 
 
+class TestLLM07(unittest.TestCase):
+    def test_prompt_logged_flagged(self):
+        src = ("import logging\ndef f():\n"
+               "    system_prompt = 'You are a bot.'\n"
+               "    logging.info('p=%s', system_prompt)\n")
+        self.assertIn("LLM07", {f.owasp_llm for f in _scan(src)})
+
+    def test_prompt_returned_not_flagged(self):
+        # Returning the prompt (to the LLM) is normal, not a leak.
+        src = "def f():\n    system_prompt = 'You are a bot.'\n    return system_prompt\n"
+        self.assertNotIn("LLM07", {f.owasp_llm for f in _scan(src)})
+
+
+class TestLLM09(unittest.TestCase):
+    def test_highstakes_ungrounded_flagged(self):
+        src = ("def medical_advice_endpoint(client, symptoms):\n"
+               "    r = client.chat.completions.create(model='x', max_tokens=9, messages=[])\n"
+               "    return r.choices[0].message.content\n")
+        cats = {f.owasp_llm for f in _scan(src)}
+        self.assertIn("LLM09", cats)
+
+    def test_general_chatbot_not_flagged(self):
+        # Returning output in a non-high-stakes chatbot is the normal pattern.
+        src = ("def chat_endpoint(client, msg):\n"
+               "    r = client.chat.completions.create(model='x', max_tokens=9, messages=[])\n"
+               "    return r.choices[0].message.content\n")
+        self.assertNotIn("LLM09", {f.owasp_llm for f in _scan(src)})
+
+    def test_grounded_not_flagged(self):
+        src = ("def medical_advice_endpoint(client, symptoms, sources):\n"
+               "    r = client.chat.completions.create(model='x', max_tokens=9, messages=[])\n"
+               "    return {'answer': r.choices[0].message.content, 'citations': sources}\n")
+        self.assertNotIn("LLM09", {f.owasp_llm for f in _scan(src)})
+
+
 class TestSarifFingerprint(unittest.TestCase):
     def test_partial_fingerprints_present(self):
         d = tempfile.mkdtemp()

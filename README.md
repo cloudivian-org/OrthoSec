@@ -174,8 +174,12 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 | `data-poisoning` | LLM04 | fine-tuning jobs; training on data from untrusted sources |
 | `output-handling` | LLM05 | LLM output flowing unsanitized into eval/shell/SQL/HTML sinks |
 | `tool-exposure` | LLM06 | Over-privileged agent tools (shell, file, HTTP, SQL) with no confirmation gate |
+| `prompt-leakage` | LLM07 | System prompt written to logs / stdout |
 | `rag-trust` | LLM08 | Untrusted web/upload content ingested into a retrieval corpus without provenance |
+| `misinformation` | LLM09 | Ungrounded model output returned to users in a high-stakes domain (advisory) |
 | `unbounded-consumption` | LLM10 | LLM calls with no output cap; unbounded agent loops (denial-of-wallet) |
+
+**Full OWASP LLM Top-10 (2025) coverage** — all ten categories, 10 detectors, benchmark-gated at 100% precision/recall.
 
 Behavior detectors ignore comments and negation (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is a first-class concern. Python targets get **AST taint/dataflow** (`orthosec/analysis/`): the three dataflow-shaped detectors trace real data, not line-proximity — untrusted input into a system prompt (LLM01), model output into a sink (LLM05), and dangerous sinks inside model-invokable tools (LLM06) — each firing only when the actual data reaches the actual sink, at any distance, **across function calls (interprocedural)** and **across modules** (import-resolved — all three detectors, including re-export chains), respecting trust-boundary and sanitizer mitigations. Plain **JavaScript** gets AST analysis too with the optional `orthosec[js]` extra (esprima); TypeScript/JSX falls back to regex.
 

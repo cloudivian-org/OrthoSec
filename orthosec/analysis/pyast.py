@@ -563,6 +563,99 @@ def _has_prompt_construction(fn: ast.AST) -> bool:
     return False
 
 
+_LOG_METHODS = {"debug", "info", "warning", "warn", "error", "exception", "critical", "log", "write"}
+_LOG_OBJECTS = {"logging", "logger", "log", "console", "sys"}
+
+
+def _is_log_call(call: ast.Call) -> bool:
+    if isinstance(call.func, ast.Name):
+        return call.func.id in ("print",)
+    if isinstance(call.func, ast.Attribute):
+        obj, meth = _chain(call.func)
+        return meth in _LOG_METHODS or obj in _LOG_OBJECTS
+    return False
+
+
+def _seed_sysprompt(scope: ast.AST) -> set[str]:
+    seed = set()
+    for node in ast.walk(scope):
+        if isinstance(node, ast.arg) and _SYS_PROMPT_TARGET.search(node.arg):
+            seed.add(node.arg)
+        if isinstance(node, ast.Name) and isinstance(getattr(node, "ctx", None), ast.Store) \
+                and _SYS_PROMPT_TARGET.search(node.id):
+            seed.add(node.id)
+    return seed
+
+
+_USERFACING = re.compile(
+    r"(?i)(route|endpoint|handler|\bapi\b|\bchat\b|\bask\b|answer|respond|reply|"
+    r"generate_response|\bquery\b|complete_)")
+_GROUNDING = re.compile(
+    r"(?i)(citation|\bcite\b|\bsource|verif|validat|ground|retriev|\brag\b|disclaimer|"
+    r"confidence|fact.?check|reference|guardrail|moderat)")
+# Returning raw model output to users is the *normal* chatbot pattern — so LLM09
+# only fires in high-stakes domains, where ungrounded output is a real misinformation
+# risk. Keeps the advisory meaningful instead of flooding every handler.
+_HIGH_STAKES = re.compile(
+    r"(?i)(medical|health|diagnos|clinical|patient|symptom|treatment|medication|dosage|"
+    r"prescription|therap|legal|lawyer|attorney|litigation|contract|financial|invest|"
+    r"\btax\b|loan|mortgage|trading|securit)")
+
+
+def misinformation_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
+    """ADVISORY (OWASP LLM09): a user-facing function in a HIGH-STAKES domain returns raw
+    model output with no grounding/verification/citation nearby. Heuristic — static
+    analysis can't judge truthfulness, so this is a low-confidence prompt to add
+    grounding, gated to domains where it actually matters."""
+    if not _HIGH_STAKES.search("\n".join(source_lines)):
+        return []
+    out, seen = [], set()
+    for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        if not _USERFACING.search(fn.name):
+            continue
+        start = getattr(fn, "lineno", 1)
+        end = getattr(fn, "end_lineno", start) or start
+        fnsrc = "\n".join(source_lines[start - 1:end])
+        # Grounding must be in code, not a comment ("# no grounding" isn't grounding).
+        code_only = "\n".join(l.split("#", 1)[0] for l in fnsrc.splitlines())
+        if _GROUNDING.search(code_only) or not _HIGH_STAKES.search(fnsrc):
+            continue
+        tainted = tainted_vars(fn)
+        if not tainted:
+            continue
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Return) and node.value is not None \
+                    and _refs_taint(node.value, tainted) and node.lineno not in seen:
+                seen.add(node.lineno)
+                snip = source_lines[node.lineno - 1].strip()[:160] \
+                    if 0 < node.lineno <= len(source_lines) else ""
+                out.append(Sink("unverified model output returned to users", node.lineno, snip))
+    return out
+
+
+def prompt_leak_sinks(tree: ast.AST, source_lines: list[str]) -> list[Sink]:
+    """A system prompt written to logs / stdout — leaks instructions and any embedded
+    secrets (OWASP LLM07). Seeds from system-prompt-named vars, follows dataflow into
+    a logging/print call."""
+    scopes = [n for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] or [tree]
+    out, seen = [], set()
+    for scope in scopes:
+        seed = _seed_sysprompt(scope)
+        if not seed:
+            continue
+        tainted = _propagate_with(scope, seed, lambda e, t: _refs_taint(e, t))
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Call) and _is_log_call(node):
+                args = list(node.args) + [kw.value for kw in node.keywords]
+                if any(_refs_taint(a, tainted) for a in args) and node.lineno not in seen:
+                    seen.add(node.lineno)
+                    snip = source_lines[node.lineno - 1].strip()[:160] \
+                        if 0 < node.lineno <= len(source_lines) else ""
+                    out.append(Sink("system prompt written to logs / stdout", node.lineno, snip))
+    return out
+
+
 def _prompt_building_params(fn: ast.AST, source_lines: list[str]) -> tuple[set[str], list[str]]:
     """Params of `fn` that, if untrusted, reach a system-prompt construction inside `fn`."""
     params = [a.arg for a in fn.args.args] + [a.arg for a in getattr(fn.args, "kwonlyargs", [])]
