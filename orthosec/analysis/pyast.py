@@ -230,9 +230,18 @@ def safe_parse(source: str):
 _OUTPUT_NAME = re.compile(
     r"(?i)(\bllm|model|completion|response|\banswer|reply|generated|assistant|"
     r"\boutput|\bresp\b|choices)")
-# Calls that produce model output.
-_LLM_CALL_METHODS = {"create", "generate", "complete", "acreate", "chat",
-                     "invoke", "ainvoke", "predict", "apredict"}
+# Calls that produce model output — unconditional (method name is LLM-specific enough).
+_LLM_CALL_METHODS = {"create", "generate", "complete", "acreate", "acomplete",
+                     "agenerate", "chat", "invoke", "ainvoke", "predict", "apredict",
+                     "stream", "astream", "generate_content"}
+# Generic method names that produce model output ONLY when the receiver is LLM-ish
+# (framework-aware: agent.run(), chain.query(), query_engine.query(), llm.call()).
+# Gating these by receiver keeps db.query()/executor.run() from being treated as output.
+_LLM_GATED_METHODS = {"run", "arun", "query", "aquery", "call", "acall",
+                      "send_message", "ask", "respond"}
+_LLM_RECEIVER = re.compile(
+    r"(?i)(llm|chain|agent|chat|query_engine|conversation|\brag\b|\bqa\b|pipeline|"
+    r"assistant|completion|openai|anthropic|gemini|bedrock|ollama|groq|cohere|litellm)")
 # Calls that neutralize taint (validate / escape / parse to structured data).
 _SANITIZERS = {"loads", "load", "escape", "clean", "sanitize", "validate",
                "parse", "model_validate", "quote", "quote_plus"}
@@ -262,10 +271,17 @@ def _is_sql_sink(call: ast.Call, meth: str) -> bool:
 
 
 def _is_llm_call(call: ast.Call) -> bool:
-    _, meth = _chain(call.func)
     if isinstance(call.func, ast.Name) and call.func.id in _LLM_CALL_METHODS:
         return True
-    return meth in _LLM_CALL_METHODS
+    obj, meth = _chain(call.func)
+    if meth in _LLM_CALL_METHODS:
+        return True
+    # Gated: generic verb, but the receiver names an LLM/agent/chain.
+    if meth in _LLM_GATED_METHODS:
+        recv = _seg(call.func.value) if isinstance(call.func, ast.Attribute) else ""
+        if _LLM_RECEIVER.search(recv) or _LLM_RECEIVER.search(obj):
+            return True
+    return False
 
 
 def _refs_taint(expr: ast.AST, tainted: set[str]) -> bool:
@@ -516,7 +532,7 @@ def interprocedural_output_sinks(tree: ast.AST, source_lines: list[str]) -> list
 
 # Param/var names that carry untrusted user-controlled input.
 _USER_NAME = re.compile(
-    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|request|\bprompt\b|\bmsg\b|"
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|request|\breq\b|\bprompt\b|\bmsg\b|"
     r"payload|\bbody\b|user_input|user_query|user_message|user_content)")
 # Targets that name a system prompt.
 _SYS_PROMPT_TARGET = re.compile(
@@ -527,11 +543,17 @@ _HARDENING = re.compile(
     r"treat .* as data|never reveal|do not disclose|as data, not|do not obey)")
 
 
+# Roots of an attribute chain that carry untrusted request data across web frameworks:
+# Flask (request.form/args/json/get_json), FastAPI/Starlette (request.query_params/body),
+# Django (request.POST/GET), and `flask.request.*` where the root is the module.
+_UNTRUSTED_ROOTS = {"request", "req", "flask"}
+
+
 def _expr_untrusted(expr: ast.AST, untrusted: set[str]) -> bool:
     for node in ast.walk(expr):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "input":
             return True
-        if isinstance(node, ast.Name) and (node.id in untrusted or node.id == "request"):
+        if isinstance(node, ast.Name) and (node.id in untrusted or node.id in _UNTRUSTED_ROOTS):
             return True
     return False
 

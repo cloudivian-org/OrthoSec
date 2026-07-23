@@ -5,6 +5,18 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 ## [Unreleased]
 
 ### Added
+- **AI dependency supply-chain audit** (`dependency-audit`, LLM03) — reads
+  `requirements*.txt` and `package.json` (not just code) and flags AI/ML dependencies
+  that are **unpinned** (non-reproducible resolve → a compromised release gets pulled)
+  or installed from an **untrusted source** (git/URL/alternate index → dependency
+  confusion). Scoped to AI/ML packages to stay on-topic and quiet. 11 detectors now;
+  benchmark 46 cases, 100% / 0 FP.
+- **Framework-aware taint tracking** — the AST engine now recognizes model output from
+  LangChain / LlamaIndex / OpenAI / Anthropic call shapes (`chain.invoke`,
+  `query_engine.query`, `agent.run`, `chat.completions.create`, …) and untrusted input
+  from Flask / FastAPI / Django request objects (`request.form`, `flask.request`, …).
+  Generic verbs (`run`/`query`/`call`) are receiver-gated so `db.query()` /
+  `executor.run()` are **not** mistaken for model output — recall up, precision held.
 - **Taint-path traces** — every dataflow finding (LLM01/05/06) now carries the
   propagation chain (`source → flows-through → sink`), reconstructed from the AST.
   Rendered as a "Data flow" block in the HTML report and as SARIF `codeFlows`, so

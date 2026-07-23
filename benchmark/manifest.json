@@ -41,6 +41,10 @@
     {"file": "cases/llm10_pos_2.py", "expect": ["LLM10"]},
     {"file": "cases/llm10_safe_1.py", "expect": []},
     {"file": "cases/llm10_safe_2.py", "expect": []},
+    {"file": "cases/requirements-dep-pos-1.txt", "expect": ["LLM03"]},
+    {"file": "cases/requirements-dep-pos-2.txt", "expect": ["LLM03"]},
+    {"file": "cases/requirements-dep-safe-1.txt", "expect": []},
+    {"file": "cases/requirements-dep-safe-2.txt", "expect": []},
     {"file": "cases/clean_1.py", "expect": []},
     {"file": "cases/clean_2.py", "expect": []}
   ]

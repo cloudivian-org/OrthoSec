@@ -1,0 +1,4 @@
+# AI stack — unpinned, non-reproducible resolve
+langchain
+openai>=1.0
+chromadb
