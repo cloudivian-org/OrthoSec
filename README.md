@@ -293,7 +293,7 @@ Found a false positive or a miss? That's the most valuable issue you can file �
 ## Roadmap
 
 - **Shipped** — static scanner; four audience profiles; provider-agnostic intel (Anthropic + Azure Foundry); self-contained HTML report with remediation agents; runtime guard (`@guard`, Python + Node) and inline `orthosec proxy`; scheduling. **Full OWASP LLM Top-10 coverage** (11 detectors incl. AI-dependency supply-chain audit of `requirements.txt`/`package.json`) with **framework-aware** Python AST taint tracking (intra-, inter-, and cross-module) for LLM01/05/06; **TypeScript/JSX AST** (`orthosec[ts]`), **Go AST** (`orthosec[go]`) for LLM05/LLM10, **Java + Kotlin AST** (`orthosec[java]` / `orthosec[kotlin]`), **C# AST** (`orthosec[csharp]`), and **Ruby + PHP AST** (`orthosec[ruby]` / `orthosec[php]`, tree-sitter) for LLM05 — all seven of the roadmap's top AI-product languages; baseline + inline suppression; `--diff` PR scanning; SARIF with stable fingerprints; PR-native GitHub Action. Published to PyPI (`pip install orthosec`) and npm (`@orthosec/guard`).
-- **Next** — extend TypeScript AST to interprocedural/cross-module taint + LLM01 (parity with Python); GitHub Marketplace listing; PDF export from the HTML report.
+- **Next** — extend interprocedural taint (now on TypeScript) to Go/Java/Kotlin/C#/Ruby/PHP, then cross-module + LLM01 (parity with Python); GitHub Marketplace listing; PDF export from the HTML report.
 - **Later** — managed dashboard; more compliance packs; org-wide baselines.
 
 ### Language coverage roadmap

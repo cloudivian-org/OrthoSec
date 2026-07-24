@@ -92,6 +92,34 @@ class TestTsAst(unittest.TestCase):
         assert ts_ast.unbounded_findings(uncapped, tsx=False) == [1]
         assert ts_ast.unbounded_findings(capped, tsx=False) == []
 
+    def test_interprocedural_return_value(self):
+        # a helper that RETURNS model output taints the caller's variable
+        src = ("function getAnswer(model) { return model.invoke(prompt); }\n"
+               "function run(model) {\n"
+               "  const answer = getAnswer(model);\n"
+               "  el.innerHTML = answer;\n"
+               "}\n")
+        assert ts_ast.output_findings(src, tsx=False)  # innerHTML from cross-function output
+
+    def test_interprocedural_helper_param_sink(self):
+        # model output passed to a helper that sinks the parameter -> flagged at call site
+        src = ("function sink(x) { child_process.execSync(x); }\n"
+               "function run(model) {\n"
+               "  const out = model.invoke(prompt);\n"
+               "  sink(out);\n"
+               "}\n")
+        hits = ts_ast.output_findings(src, tsx=False)
+        assert any("helper" in cap for _, cap in hits)
+
+    def test_interprocedural_precision_non_output(self):
+        # a non-model value through the same helper must NOT fire
+        src = ("function sink(x) { child_process.execSync(x); }\n"
+               "function run() {\n"
+               "  const cfg = readConfig();\n"
+               "  sink(cfg);\n"
+               "}\n")
+        assert ts_ast.output_findings(src, tsx=False) == []
+
     def test_detector_end_to_end_on_tsx(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "C.tsx").write_text(

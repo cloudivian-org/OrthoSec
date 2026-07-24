@@ -172,12 +172,20 @@ def _refs(node, tainted: set) -> bool:
 
 
 def _expr_is_output(node, tainted: set) -> bool:
+    return _expr_is_output_ip(node, tainted, ())
+
+
+def _expr_is_output_ip(node, tainted: set, returns_out) -> bool:
     # A value produced by a sanitizer is clean, even if it wraps model output.
     if node is not None and node.type == "call_expression" and _is_sanitizer_call(node):
         return False
     for n in _walk(node):
-        if n.type == "call_expression" and _is_llm_output_call(_callee_chain(n)):
-            return True
+        if n.type == "call_expression":
+            chain = _callee_chain(n)
+            if _is_llm_output_call(chain):
+                return True
+            if len(chain) == 1 and chain[0] in returns_out:   # x = localHelperReturningOutput()
+                return True
         if n.type == "identifier" and _text(n) in tainted:
             return True
     return False
@@ -207,7 +215,7 @@ def _ts_scopes(root):
     return scopes or [root]
 
 
-def _taint_in_scope(scope):
+def _taint_in_scope(scope, returns_out=()):
     decls = []   # (name, value_node)
     for n in _walk(scope):
         if n.type == "variable_declarator":
@@ -218,40 +226,41 @@ def _taint_in_scope(scope):
             left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
             if left is not None and left.type == "identifier":
                 decls.append((_text(left), right))
-    tainted = {name for name, val in decls
-               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return _fixpoint(decls, {name for name, val in decls
+                             if _OUTPUT_NAME.search(name)
+                             and not (val is not None and _is_sanitizer_call(val))}, returns_out)
+
+
+def _propagate_from(scope, seed, returns_out=()):
+    """Taint set when `seed` names start tainted (used to test a function's parameters)."""
+    decls = []
+    for n in _walk(scope):
+        if n.type == "variable_declarator":
+            name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+            if name is not None and name.type == "identifier":
+                decls.append((_text(name), val))
+        elif n.type == "assignment_expression":
+            left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
+            if left is not None and left.type == "identifier":
+                decls.append((_text(left), right))
+    return _fixpoint(decls, set(seed), returns_out)
+
+
+def _fixpoint(decls, tainted, returns_out):
     changed = True
     while changed:
         changed = False
         for name, val in decls:
             if name in tainted or val is None:
                 continue
-            if _expr_is_output(val, tainted):
+            if _expr_is_output_ip(val, tainted, returns_out):
                 tainted.add(name)
                 changed = True
     return tainted
 
 
-def output_findings(src: str, tsx: bool = True):
-    """Model output flowing into a dangerous sink. Returns list of (line, capability),
-    or None to fall back to regex."""
-    root = _parse(src, tsx)
-    if root is None:
-        return None
-
-    out = []
-    seen = set()
-
-    def add(line, cap):
-        if (line, cap) not in seen:
-            seen.add((line, cap))
-            out.append((line, cap))
-
-    for scope in _ts_scopes(root):
-      tainted = _taint_in_scope(scope)
-      if not tainted:
-        continue
-      for n in _walk(scope):
+def _find_sinks(scope, tainted, add):
+    for n in _walk(scope):
         t = n.type
         if t == "assignment_expression":
             left = n.child_by_field_name("left")
@@ -267,7 +276,7 @@ def output_findings(src: str, tsx: bool = True):
             if not chain or not _refs(argnode, tainted):
                 continue
             last = chain[-1]
-            if last == "eval" or (last == "Function"):
+            if last == "eval" or last == "Function":
                 add(_line(n), "code execution (eval/Function)")
             elif chain[-2:] == ["document", "write"]:
                 add(_line(n), "HTML injection (document.write)")
@@ -275,6 +284,128 @@ def output_findings(src: str, tsx: bool = True):
                 add(_line(n), "shell execution")
             elif last in ("query", "raw", "execute") and any(_DB_RECEIVER.search(p) for p in chain):
                 add(_line(n), "raw SQL execution")
+
+
+# ---- interprocedural (intra-file) helpers -----------------------------------
+
+def _formal_params(fn):
+    p = fn.child_by_field_name("parameters")
+    names = []
+    if p is not None:
+        for c in p.children:
+            if c.type in ("required_parameter", "optional_parameter"):
+                pat = c.child_by_field_name("pattern")
+                if pat is not None and pat.type == "identifier":
+                    names.append(_text(pat))
+                else:
+                    ids = [d for d in _walk(c) if d.type == "identifier"]
+                    if ids:
+                        names.append(_text(ids[0]))
+    return names
+
+
+def _functions(root):
+    """name -> function node, for plain functions and `const foo = (…) => …` helpers."""
+    funcs = {}
+    for n in _walk(root):
+        if n.type in ("function_declaration", "generator_function_declaration"):
+            nm = n.child_by_field_name("name")
+            if nm is not None:
+                funcs[_text(nm)] = n
+        elif n.type == "variable_declarator":
+            nm, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+            if nm is not None and nm.type == "identifier" and val is not None \
+                    and val.type in ("arrow_function", "function_expression"):
+                funcs[_text(nm)] = val
+    return funcs
+
+
+def _has_sink_call(fn):
+    for n in _walk(fn):
+        if n.type == "call_expression":
+            last = _callee_chain(n)[-1:]
+            if last and last[0] in ("eval", "Function", "exec", "execSync", "spawn",
+                                    "spawnSync", "execFile", "execFileSync", "query", "raw", "execute"):
+                return True
+        if n.type == "assignment_expression":
+            left = n.child_by_field_name("left")
+            if left is not None and left.type == "member_expression" and _prop(left) == "innerHTML":
+                return True
+    return False
+
+
+def _returns_output(fn, returns_out):
+    tainted = _taint_in_scope(fn, returns_out)
+    for n in _walk(fn):
+        if n.type == "return_statement":
+            val = next((c for c in n.children if c.type not in ("return", ";")), None)
+            if val is not None and _expr_is_output_ip(val, tainted, returns_out):
+                return True
+    return False
+
+
+def _dangerous_params(fn, returns_out):
+    params = _formal_params(fn)
+    if not params or not _has_sink_call(fn):
+        return params, set()
+    dangerous = set()
+    for p in params:
+        found = []
+        _find_sinks(fn, _propagate_from(fn, {p}, returns_out), lambda l, c: found.append(1))
+        if found:
+            dangerous.add(p)
+    return params, dangerous
+
+
+def output_findings(src: str, tsx: bool = True):
+    """Model output flowing into a dangerous sink, including across local function calls
+    (interprocedural, intra-file). Returns list of (line, capability), or None to fall back."""
+    root = _parse(src, tsx)
+    if root is None:
+        return None
+
+    funcs = _functions(root)
+    # Which local functions return model output (fixpoint: a helper returning another
+    # output-helper's result counts too).
+    returns_out = set()
+    changed = True
+    while changed:
+        changed = False
+        for name, fn in funcs.items():
+            if name not in returns_out and _returns_output(fn, returns_out):
+                returns_out.add(name)
+                changed = True
+    # Which local functions sink a parameter.
+    summaries = {name: _dangerous_params(fn, returns_out) for name, fn in funcs.items()}
+    summaries = {k: v for k, v in summaries.items() if v[1]}
+
+    out, seen = [], set()
+
+    def add(line, cap):
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _ts_scopes(root):
+        tainted = _taint_in_scope(scope, returns_out)
+        if tainted:
+            _find_sinks(scope, tainted, add)
+        # Interprocedural: a tainted argument passed to a helper that sinks that parameter.
+        if not summaries:
+            continue
+        for n in _walk(scope):
+            if n.type != "call_expression":
+                continue
+            chain = _callee_chain(n)
+            if len(chain) != 1 or chain[0] not in summaries:
+                continue
+            params, dangerous = summaries[chain[0]]
+            argnode = n.child_by_field_name("arguments")
+            actual = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]
+            for i, arg in enumerate(actual):
+                if i < len(params) and params[i] in dangerous and _refs(arg, tainted):
+                    add(_line(n), "a helper that passes it to a dangerous sink (via %s())" % chain[0])
+                    break
     return out
 
 

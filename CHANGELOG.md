@@ -4,6 +4,22 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-07-24
+
+### Added
+- **Interprocedural taint for TypeScript** (LLM05) — the first tree-sitter language to
+  gain the multi-function depth the Python engine already has. Within a `.ts`/`.tsx`/`.js`
+  file, model output is now followed **across local function calls**:
+  - **return-value**: a helper that `return`s model output (e.g. `getAnswer()` →
+    `model.invoke(...)`) taints the caller's variable, so `const a = getAnswer(); el.innerHTML = a`
+    is caught (fixpoint, so chains of output-returning helpers count).
+  - **parameter-sink**: model output passed to a local helper whose parameter reaches a
+    sink is flagged at the call site (e.g. `sink(out)` where `function sink(x){ execSync(x) }`).
+  Precision held — a non-model value through the same helper does not fire; sanitizers and
+  per-function scoping still apply. Verified on vercel/ai-chatbot (still clean, Grade A).
+  Go / Java / Kotlin / C# / Ruby / PHP interprocedural, then cross-module + LLM01, follow
+  the same template next.
+
 ## [0.8.0] — 2026-07-24
 
 ### Added
