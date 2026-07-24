@@ -4,7 +4,20 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
-## [0.7.5] — 2026-07-24
+## [0.7.6] — 2026-07-24
+
+### Added
+- **Java language support** (`orthosec[java]`, tree-sitter) — language #4. `.java` files
+  are parsed to a real AST for **LLM05**: model output flowing into `Runtime.exec` /
+  `new ProcessBuilder(...)` (command execution), JDBC/JPA raw SQL (`executeQuery`,
+  `executeUpdate`, `createQuery`, `createNativeQuery`, gated `execute`), or a script
+  `eval`. Taint is seeded from Spring AI (`chatClient…call().content()`) and LangChain4j
+  (`model.generate()`, gated `call`/`chat`/`invoke` on an LLM-ish receiver) call shapes,
+  cleared by escaping sanitizers (`StringEscapeUtils.escapeSql`, `htmlEscape`, `encode`),
+  and analyzed per method/constructor so same-named locals don't conflate. `.java` is now
+  a scanned file type; without the extra it falls back to regex (no crash).
+  Java LLM10 (output-token cap) is deferred — it's a model-builder concern, not per-call,
+  in the dominant frameworks. Kotlin is next.
 
 ### Added
 - **Go language support** (`orthosec[go]`, tree-sitter) — language #3. `.go` files are

@@ -55,7 +55,7 @@ class OutputHandlingDetector:
                 continue
             if suffix == ".py":
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go"}:
+            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go", ".java"}:
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
@@ -99,11 +99,19 @@ class OutputHandlingDetector:
                 evidence=raw_lines[ln - 1].strip()[:200] if 0 < ln <= len(raw_lines) else "",
                 remediation=_REMEDIATION, confidence=conf)
 
-        # Go AST via tree-sitter.
+        # Go / Java AST via tree-sitter.
         if suffix == ".go":
             from orthosec.analysis import go_ast
             if go_ast.available():
                 hits = go_ast.output_findings(text)
+                if hits is not None:
+                    for ln, cap in hits:
+                        yield _emit(ln, cap, 0.78)
+            return
+        if suffix == ".java":
+            from orthosec.analysis import java_ast
+            if java_ast.available():
+                hits = java_ast.output_findings(text)
                 if hits is not None:
                     for ln, cap in hits:
                         yield _emit(ln, cap, 0.78)
