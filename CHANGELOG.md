@@ -4,7 +4,17 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
-## [0.7.6] — 2026-07-24
+## [0.7.7] — 2026-07-24
+
+### Added
+- **Kotlin language support** (`orthosec[kotlin]`, tree-sitter) — completes language #4.
+  `.kt` files are parsed to a real AST for **LLM05**: model output into `Runtime.exec` /
+  `ProcessBuilder(...)` (command), JDBC/JPA raw SQL, or a script `eval`. Kotlin AI apps
+  (Android / Ktor) use the same JVM SDKs, so it reuses Java's Spring AI / LangChain4j
+  receiver, method, and sanitizer vocabulary, with per-function scoping. The Kotlin
+  grammar exposes no named fields, so call chains are read by in-source-order identifier
+  traversal. `.kt` is now a scanned file type; without the extra it falls back to regex.
+  Kotlin LLM10 is deferred (builder-configured cap, like Java).
 
 ### Added
 - **Java language support** (`orthosec[java]`, tree-sitter) — language #4. `.java` files

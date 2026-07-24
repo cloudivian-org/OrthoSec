@@ -55,7 +55,7 @@ class OutputHandlingDetector:
                 continue
             if suffix == ".py":
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go", ".java"}:
+            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt"}:
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
@@ -112,6 +112,14 @@ class OutputHandlingDetector:
             from orthosec.analysis import java_ast
             if java_ast.available():
                 hits = java_ast.output_findings(text)
+                if hits is not None:
+                    for ln, cap in hits:
+                        yield _emit(ln, cap, 0.78)
+            return
+        if suffix == ".kt":
+            from orthosec.analysis import kotlin_ast
+            if kotlin_ast.available():
+                hits = kotlin_ast.output_findings(text)
                 if hits is not None:
                     for ln, cap in hits:
                         yield _emit(ln, cap, 0.78)
