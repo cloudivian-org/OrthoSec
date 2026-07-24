@@ -23,8 +23,9 @@ _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cac
               "cassettes", "__snapshots__",
               # bundled / vendored front-end assets (compiled output, not app logic)
               "assets"}
-_TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".txt", ".md",
-             ".json", ".yaml", ".yml", ".toml", ".env", ".cfg", ".ini", ".sh", ".ipynb", ".prompt"}
+_TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs", ".txt",
+             ".md", ".json", ".yaml", ".yml", ".toml", ".env", ".cfg", ".ini", ".sh",
+             ".ipynb", ".prompt"}
 _MAX_BYTES = 2_000_000  # skip files larger than 2MB
 # Build artifacts / bundles / lockfiles — not source; frequent false-positive sources.
 _SKIP_FILE = re.compile(r"(?i)(\.min\.(js|css)$|\.bundle\.|-lock\.json$|package-lock\.json$|"

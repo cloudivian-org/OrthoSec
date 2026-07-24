@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orthosec"
-version = "0.7.7"
+version = "0.7.8"
 description = "The AI Security Architect — technical AI risk analysis with executive business context. Open source."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -44,9 +44,11 @@ go = ["tree-sitter>=0.21", "tree-sitter-go>=0.21"]
 java = ["tree-sitter>=0.21", "tree-sitter-java>=0.21"]
 # Precise Kotlin (.kt) analysis via tree-sitter.
 kotlin = ["tree-sitter>=0.21", "tree-sitter-kotlin>=1.1"]
+# Precise C# (.cs) analysis via tree-sitter.
+csharp = ["tree-sitter>=0.21", "tree-sitter-c-sharp>=0.21"]
 dev = ["pytest>=8", "anthropic>=0.40", "rich>=13", "esprima>=4.0",
        "tree-sitter>=0.21", "tree-sitter-typescript>=0.21", "tree-sitter-go>=0.21",
-       "tree-sitter-java>=0.21", "tree-sitter-kotlin>=1.1"]
+       "tree-sitter-java>=0.21", "tree-sitter-kotlin>=1.1", "tree-sitter-c-sharp>=0.21"]
 
 [project.scripts]
 orthosec = "orthosec.cli:main"

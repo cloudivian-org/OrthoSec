@@ -4,7 +4,24 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
-## [0.7.7] — 2026-07-24
+## [0.7.8] — 2026-07-24
+
+### Added
+- **C# / .NET language support** (`orthosec[csharp]`, tree-sitter) — language #5. `.cs`
+  files are parsed to a real AST for **LLM05**: model output flowing into `Process.Start`
+  (command), ADO.NET/Dapper/EF raw SQL (`new SqlCommand(...)`, `FromSqlRaw`,
+  `ExecuteSqlRaw`, `conn.Query`/`Execute`), or `Html.Raw` (XSS). Taint is seeded from
+  Semantic Kernel (`kernel.InvokePromptAsync`), Azure OpenAI, and OpenAI .NET
+  (`chat.CompleteChat().Value.Content`) call shapes, cleared by escaping sanitizers
+  (`HttpUtility.HtmlEncode`, `Uri.EscapeDataString`, `Regex.Escape`), and analyzed per
+  method/constructor. `.cs` is now a scanned file type; without the extra it falls back
+  to regex (no crash). C# LLM10 deferred (options-object/builder cap).
+  - Precision (found scanning SciSharp/BotSharp): object-initializer members
+    (`new ProcessStartInfo { RedirectStandardOutput = true }`) are no longer taint-seeded
+    — a field name containing "output" is not a model-output variable. On BotSharp this
+    left the real finding standing: the SqlDriver plugin executes **LLM-generated SQL**
+    (`connection.Query(args.SqlStatement)` where `args` is deserialized from the model
+    response) via Dapper without parameterization — a true LLM→SQL-injection.
 
 ### Added
 - **Kotlin language support** (`orthosec[kotlin]`, tree-sitter) — completes language #4.
