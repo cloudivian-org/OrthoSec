@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 
 # `model`/`llm` name the client, not its output (caught call-based) — excluded to avoid FPs.
-_OUTPUT_NAME = re.compile(r"(?i)(completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
+# `output` excludes file/path-ish names (outputPath/outputFile/...) — not model output.
+_OUTPUT_NAME = re.compile(
+    r"(?i)(completion|response|answer|reply|generated|assistant|"
+    r"output(?!path|file|dir|name|buf|stream|writer|target|location|dest)|resp|choices|content)")
 
 
 def available() -> bool:

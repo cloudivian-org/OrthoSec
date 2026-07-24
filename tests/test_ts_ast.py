@@ -71,6 +71,14 @@ class TestTsAst(unittest.TestCase):
                   "}\n")
         assert ts_ast.output_findings(purify, tsx=False) == []
 
+    def test_output_path_var_is_not_model_output(self):
+        # outputPath / outputFile are file paths, not model output
+        src = ("function h(){\n"
+               "  const outputPath = cfg.dir + '/x';\n"
+               "  el.innerHTML = outputPath;\n"
+               "}\n")
+        assert ts_ast.output_findings(src, tsx=False) == []
+
     def test_unsanitized_output_still_fires(self):
         raw = ("function C(model: any){\n"
                "  const answer = model.invoke(q);\n"

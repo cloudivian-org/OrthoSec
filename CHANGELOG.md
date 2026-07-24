@@ -4,7 +4,34 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
-## [0.7.4] — 2026-07-24
+## [0.7.5] — 2026-07-24
+
+### Added
+- **Go language support** (`orthosec[go]`, tree-sitter) — language #3. `.go` files are
+  parsed to a real AST for:
+  - **LLM05** — model output flowing into `exec.Command`/`exec.CommandContext` (shell),
+    raw SQL (`db.Query`/`Exec`/`QueryRow`…), or `template.HTML` (XSS). Taint is seeded
+    from go-openai (`CreateChatCompletion`), langchaingo (`GenerateFromSinglePrompt`,
+    gated `Call`/`Run`/`Generate`), and anthropic-sdk-go (`Messages.New`) call shapes,
+    and cleared by escaping sanitizers (`html.EscapeString`, `url.QueryEscape`, …).
+  - **LLM10** — a completion request (`openai.ChatCompletionRequest{…}`) with no
+    `MaxTokens`-style cap. Only judged when the request is an **inline literal** whose
+    fields are fully visible; a request passed as a variable (cap possibly set in a
+    config builder) is not flagged, to avoid interprocedural false positives.
+  `.go` is now a scanned file type; without the extra it falls back to regex (no crash).
+- **Output-name precision** (all analyzers) — a variable named `outputPath` /
+  `outputFile` / `outputDir` / … is a file path, not model output, and is no longer
+  seeded as tainted (`outputText` / `llmOutput` still are). Found scanning
+  danielmiessler/fabric, which is clean (Grade A) after this.
+- **Per-function taint scoping** (Go + TypeScript analyzers) — taint is now analyzed
+  per function/method, so a variable named e.g. `stmt` in one function no longer taints
+  a same-named parameter in another (the tree-sitter analyzers previously treated a whole
+  file as one scope, matching the Python engine now). Removed 10 cross-function SQL false
+  positives on tmc/langchaingo (864 Go files across fabric+langchaingo now scan with zero
+  go-analyzer false positives).
+- **Go LLM10 is conservative** — only a `…Request{…}` struct literal is judged for a
+  missing cap; completion calls that pass the request as a variable or set the cap via
+  functional options (`llms.WithMaxTokens(…)`, the langchaingo style) are not flagged.
 
 ### Added
 - **Download button + sandbox-safe printing in the HTML report.** A new "Download .html"

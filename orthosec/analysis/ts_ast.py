@@ -15,8 +15,10 @@ from __future__ import annotations
 import re
 
 # `model`/`llm` name the client, not its output (caught call-based) — excluded to avoid FPs.
+# `output` excludes file/path-ish names (outputPath/outputFile/...) — not model output.
 _OUTPUT_NAME = re.compile(
-    r"(?i)(completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
+    r"(?i)(completion|response|answer|reply|generated|assistant|"
+    r"output(?!path|file|dir|name|buf|stream|writer|target|location|dest)|resp|choices|content)")
 # Receiver hint for gated generic verbs (run/query/call) — mirrors the Python engine.
 _LLM_RECEIVER = re.compile(
     r"(?i)(llm|chain|agent|chat|model|openai|anthropic|gemini|bedrock|ollama|groq|"
@@ -195,15 +197,19 @@ def unbounded_findings(src: str, tsx: bool = True):
     return out
 
 
-def output_findings(src: str, tsx: bool = True):
-    """Model output flowing into a dangerous sink. Returns list of (line, capability),
-    or None to fall back to regex."""
-    root = _parse(src, tsx)
-    if root is None:
-        return None
+_TS_SCOPE_TYPES = ("function_declaration", "method_definition", "arrow_function",
+                   "function_expression", "generator_function_declaration")
 
+
+def _ts_scopes(root):
+    """Per function/method so same-named vars in different functions don't conflate taint."""
+    scopes = [n for n in _walk(root) if n.type in _TS_SCOPE_TYPES]
+    return scopes or [root]
+
+
+def _taint_in_scope(scope):
     decls = []   # (name, value_node)
-    for n in _walk(root):
+    for n in _walk(scope):
         if n.type == "variable_declarator":
             name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
             if name is not None and name.type == "identifier":
@@ -212,8 +218,6 @@ def output_findings(src: str, tsx: bool = True):
             left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
             if left is not None and left.type == "identifier":
                 decls.append((_text(left), right))
-
-    # Seed by name — but a name-matched var assigned straight from a sanitizer is clean.
     tainted = {name for name, val in decls
                if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
     changed = True
@@ -225,8 +229,15 @@ def output_findings(src: str, tsx: bool = True):
             if _expr_is_output(val, tainted):
                 tainted.add(name)
                 changed = True
-    if not tainted:
-        return []
+    return tainted
+
+
+def output_findings(src: str, tsx: bool = True):
+    """Model output flowing into a dangerous sink. Returns list of (line, capability),
+    or None to fall back to regex."""
+    root = _parse(src, tsx)
+    if root is None:
+        return None
 
     out = []
     seen = set()
@@ -236,7 +247,11 @@ def output_findings(src: str, tsx: bool = True):
             seen.add((line, cap))
             out.append((line, cap))
 
-    for n in _walk(root):
+    for scope in _ts_scopes(root):
+      tainted = _taint_in_scope(scope)
+      if not tainted:
+        continue
+      for n in _walk(scope):
         t = n.type
         if t == "assignment_expression":
             left = n.child_by_field_name("left")

@@ -70,7 +70,7 @@ class UnboundedConsumptionDetector:
                 continue
             if suffix in {".py", ".ipynb"}:
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".tsx", ".jsx"}:
+            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go"}:
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
@@ -117,6 +117,16 @@ class UnboundedConsumptionDetector:
                 title="LLM call without an output-token cap", severity=Severity.MEDIUM,
                 owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=ln,
                 evidence=_snip(raw, ln), remediation=_CAP_FIX, confidence=conf)
+
+        # Go AST via tree-sitter.
+        if suffix == ".go":
+            from orthosec.analysis import go_ast
+            if go_ast.available():
+                hits = go_ast.unbounded_findings(text)
+                if hits is not None:
+                    for ln in hits:
+                        yield _emit(ln, 0.68)
+            return
 
         # TypeScript/JSX (and JS) AST via tree-sitter — primary path.
         from orthosec.analysis import ts_ast

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orthosec"
-version = "0.7.4"
+version = "0.7.5"
 description = "The AI Security Architect — technical AI risk analysis with executive business context. Open source."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -38,8 +38,10 @@ pretty = ["rich>=13"]
 js = ["esprima>=4.0"]
 # Precise TypeScript / JSX (.ts/.tsx/.jsx) analysis via tree-sitter.
 ts = ["tree-sitter>=0.21", "tree-sitter-typescript>=0.21"]
+# Precise Go (.go) analysis via tree-sitter.
+go = ["tree-sitter>=0.21", "tree-sitter-go>=0.21"]
 dev = ["pytest>=8", "anthropic>=0.40", "rich>=13", "esprima>=4.0",
-       "tree-sitter>=0.21", "tree-sitter-typescript>=0.21"]
+       "tree-sitter>=0.21", "tree-sitter-typescript>=0.21", "tree-sitter-go>=0.21"]
 
 [project.scripts]
 orthosec = "orthosec.cli:main"
