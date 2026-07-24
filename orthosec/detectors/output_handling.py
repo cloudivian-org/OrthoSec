@@ -55,7 +55,8 @@ class OutputHandlingDetector:
                 continue
             if suffix == ".py":
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs"}:
+            elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs",
+                            ".rb", ".php"}:
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
@@ -128,6 +129,22 @@ class OutputHandlingDetector:
             from orthosec.analysis import csharp_ast
             if csharp_ast.available():
                 hits = csharp_ast.output_findings(text)
+                if hits is not None:
+                    for ln, cap in hits:
+                        yield _emit(ln, cap, 0.78)
+            return
+        if suffix == ".rb":
+            from orthosec.analysis import ruby_ast
+            if ruby_ast.available():
+                hits = ruby_ast.output_findings(text)
+                if hits is not None:
+                    for ln, cap in hits:
+                        yield _emit(ln, cap, 0.78)
+            return
+        if suffix == ".php":
+            from orthosec.analysis import php_ast
+            if php_ast.available():
+                hits = php_ast.output_findings(text)
                 if hits is not None:
                     for ln, cap in hits:
                         yield _emit(ln, cap, 0.78)

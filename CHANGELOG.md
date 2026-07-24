@@ -4,6 +4,34 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-07-24
+
+### Added
+- **Ruby + PHP language support** (`orthosec[ruby]` / `orthosec[php]`, tree-sitter) —
+  languages #6 and #7, completing the roadmap's top seven AI-product languages beyond
+  Python. `.rb` and `.php` files are parsed to a real AST for **LLM05**:
+  - **Ruby** — model output into `system`/`exec`/`spawn` or `` `…` `` (shell), raw SQL
+    (`execute`, `find_by_sql`, `exec_query`), `eval`/`instance_eval`, or `raw`/`html_safe`
+    (XSS). Aware of ruby-openai (`client.chat(...).dig("choices"…"content")`) and
+    langchainrb shapes.
+  - **PHP** — model output into `exec`/`shell_exec`/`system`/`passthru` (shell), raw SQL
+    (`$pdo->query`, `$db->exec`, Laravel `whereRaw`/`DB::statement`), `eval`, or `echo`
+    (XSS). Aware of openai-php (`$client->chat()->create(...)->…->content`) and LLPhant.
+  Both are per-function-scoped and sanitizer-aware (`CGI.escape`/`sanitize` for Ruby,
+  `htmlspecialchars`/`escapeshellarg` for PHP). `.rb`/`.php` are now scanned file types;
+  without the extra they fall back to regex (no crash). LLM10 deferred for both.
+
+  Validated against real repos (langchainrb, discourse-ai, LLPhant, instructor-php —
+  ~5,000 files, 0 crashes, 0 false positives) which surfaced and fixed three precision
+  classes before release: PHP `echo`/`print` is no longer treated as a sink (CLI output
+  vs HTML is ambiguous and it flooded findings); Ruby `delete`/`update` dropped from the
+  SQL method set (`File.delete` etc. are far more common); and PHP shell/SQL sinks check
+  only the first argument, so `exec($cmd, $output, $exitCode)`'s by-ref `$output` capture
+  no longer triggers a finding.
+
+**OrthoSec now has AST-level LLM05 coverage across Python, JS/TS, Go, Java, Kotlin, C#,
+Ruby, and PHP** — the eight most common languages for building AI products.
+
 ## [0.7.9] — 2026-07-24
 
 ### Fixed (Python LLM01 precision — from scanning microsoft/semantic-kernel)
