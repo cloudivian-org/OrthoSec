@@ -4,6 +4,8 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-07-24
+
 ### Added
 - **Env-driven reporting** — every `orthosec scan` already writes the full HTML report;
   now it's pinnable via `.env` with no flags: `ORTHOSEC_REPORT=<path>` (or `off` to
