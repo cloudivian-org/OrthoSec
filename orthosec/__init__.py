@@ -4,7 +4,7 @@ Deterministic AI-risk detection with a grounded executive-context layer.
 Core scan + report path is stdlib-only and runs with no external deps.
 """
 
-__version__ = "0.7.8"
+__version__ = "0.7.9"
 
 from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import Scanner, ScanContext, ScanResult

@@ -97,7 +97,9 @@ class PromptHardeningDetector:
             return
         for lineno, line in enumerate(lines, start=1):
             if _CONCAT_INJECTION.search(line):
-                if _LOG_LINE.search(line):        # a log/print of user input, not a prompt
+                # A log/print or a raised-exception message interpolating user input is a
+                # diagnostic string, not a prompt.
+                if _LOG_LINE.search(line) or line.lstrip().startswith("raise "):
                     continue
                 window = "\n".join(lines[max(0, lineno - 4):lineno + 3])
                 if _HARDENING.search(window):

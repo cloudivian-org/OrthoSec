@@ -4,6 +4,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.7.9] — 2026-07-24
+
+### Fixed (Python LLM01 precision — from scanning microsoft/semantic-kernel)
+- **Loop / comprehension variables are no longer seeded as untrusted input.** A bare
+  `for msg in history` loop var (name matches `\bmsg\b`) iterates an existing collection —
+  it isn't the external-input boundary — so it no longer starts a false taint chain into a
+  `system_message`-named assignment. Function parameters and real assignments from
+  `input()`/`request.*` still seed as before, so genuine prompt-injection still fires.
+- **Raised-exception messages are no longer read as prompts.** A `raise
+  SomeError(f"…{content}…")` is a diagnostic string, not a system prompt (the regex
+  fallback already skipped `logger`/`print`; this extends it to `raise`).
+- Together these cut semantic-kernel's LLM01 findings from 7 to 2 (the remaining two are
+  a defensible `system_message = convert(message)` weak signal in test code). Benchmark
+  and adversarial sets unchanged (100% / 0 FP, 14/14).
+
 ## [0.7.8] — 2026-07-24
 
 ### Added

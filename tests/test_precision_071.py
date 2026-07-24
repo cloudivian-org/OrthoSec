@@ -61,6 +61,34 @@ def test_log_of_user_input_not_flagged_as_prompt_injection(tmp_path):
                    for f in findings if f.rule_id == "ORTHO-PI-001")
 
 
+def test_loop_variable_not_seeded_as_untrusted():
+    # a `for msg in history` loop var (matches \bmsg\b) is not an external-input boundary
+    from orthosec.analysis.pyast import safe_parse, injection_sinks
+    src = ("def reduce(history):\n"
+           "    for i, msg in enumerate(history):\n"
+           "        if msg.role == 'system':\n"
+           "            system_message = history[i]\n"
+           "    return system_message\n")
+    assert injection_sinks(safe_parse(src), src.splitlines()) == []
+
+
+def test_real_untrusted_param_still_reaches_prompt():
+    from orthosec.analysis.pyast import safe_parse, injection_sinks
+    src = ("def h(user_query):\n"
+           "    system_prompt = 'You are a bot. ' + user_query\n"
+           "    return system_prompt\n")
+    assert injection_sinks(safe_parse(src), src.splitlines())  # non-empty
+
+
+def test_raised_exception_message_not_flagged_as_prompt(tmp_path):
+    (tmp_path / "app.py").write_text(
+        'messages = [{"role": "system", "content": "You are a bot."}]\n'   # makes has_prompt true
+        'def h(content):\n'
+        '    raise ValueError(f"Unsupported content type: {content}")\n')
+    findings = Scanner().scan(str(tmp_path)).findings
+    assert not any(f.rule_id == "ORTHO-PI-001" for f in findings)
+
+
 def test_bundled_assets_dir_skipped(tmp_path):
     d = tmp_path / "viz" / "assets"
     d.mkdir(parents=True)

@@ -560,13 +560,28 @@ def _expr_untrusted(expr: ast.AST, untrusted: set[str]) -> bool:
     return False
 
 
+def _loop_targets(scope: ast.AST) -> set[str]:
+    """Names bound by a `for`/comprehension target — they iterate an existing collection,
+    so they're not an external-input boundary and must not be seeded as untrusted (a bare
+    `for msg in history` loop var named like user input was a false injection source)."""
+    names: set[str] = set()
+    for node in ast.walk(scope):
+        target = None
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            target = node.target
+        if target is not None:
+            names.update(t.id for t in ast.walk(target) if isinstance(t, ast.Name))
+    return names
+
+
 def _seed_untrusted(scope: ast.AST) -> set[str]:
+    loop_vars = _loop_targets(scope)
     seed: set[str] = set()
     for node in ast.walk(scope):
         if isinstance(node, ast.arg) and _USER_NAME.search(node.arg):
             seed.add(node.arg)
         if isinstance(node, ast.Name) and isinstance(getattr(node, "ctx", None), ast.Store) \
-                and _USER_NAME.search(node.id):
+                and _USER_NAME.search(node.id) and node.id not in loop_vars:
             seed.add(node.id)
     return seed
 
