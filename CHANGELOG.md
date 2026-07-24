@@ -4,6 +4,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-07-24
+
+### Fixed (precision — from scanning crewAI, a 1,269-file public repo)
+Three false-positive classes surfaced by a real-world scan; benchmark still 100% / 0 FP.
+- **A `model`-named variable is no longer treated as model output.** `model` / `llm`
+  name the *client*, not its output (real output is still caught call-based, e.g.
+  `model.generate(...)`), so a model-*name* string passed to a subprocess no longer
+  trips LLM05. Applied to the Python, TypeScript, and JavaScript analyzers.
+- **Recorded test I/O is skipped.** `cassettes/` (VCR) and `__snapshots__/` dirs are
+  recorded fixtures, not source — no longer scanned (killed spurious LLM01 hits on
+  cassette YAML).
+- **Bundled front-end assets are skipped.** `assets/` joins the skip list alongside
+  `dist`/`vendor`/`_static` — a vendored `interactive.js` no longer trips LLM05 on a
+  library's `innerHTML`.
+
 ## [0.7.0] — 2026-07-23
 
 ### Added

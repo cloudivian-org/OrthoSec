@@ -18,7 +18,11 @@ from orthosec.core.scoring import grade, posture_score
 # Files we never want to read (binaries, vendored, VCS, caches).
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
               "dist", "build", ".idea", ".pytest_cache", "site-packages", "_static",
-              ".next", "out", "vendor", "coverage", ".docusaurus", ".turbo", "target"}
+              ".next", "out", "vendor", "coverage", ".docusaurus", ".turbo", "target",
+              # recorded test I/O (not source): VCR cassettes, snapshot fixtures
+              "cassettes", "__snapshots__",
+              # bundled / vendored front-end assets (compiled output, not app logic)
+              "assets"}
 _TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".txt", ".md", ".json", ".yaml",
              ".yml", ".toml", ".env", ".cfg", ".ini", ".sh", ".ipynb", ".prompt"}
 _MAX_BYTES = 2_000_000  # skip files larger than 2MB

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import re
 
-_OUTPUT_NAME = re.compile(r"(?i)(llm|model|completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
+# `model`/`llm` name the client, not its output (caught call-based) — excluded to avoid FPs.
+_OUTPUT_NAME = re.compile(r"(?i)(completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
 
 
 def available() -> bool:

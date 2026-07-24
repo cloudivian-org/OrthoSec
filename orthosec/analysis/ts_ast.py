@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import re
 
+# `model`/`llm` name the client, not its output (caught call-based) — excluded to avoid FPs.
 _OUTPUT_NAME = re.compile(
-    r"(?i)(llm|model|completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
+    r"(?i)(completion|response|answer|reply|generated|assistant|output|resp|choices|content)")
 # Receiver hint for gated generic verbs (run/query/call) — mirrors the Python engine.
 _LLM_RECEIVER = re.compile(
     r"(?i)(llm|chain|agent|chat|model|openai|anthropic|gemini|bedrock|ollama|groq|"

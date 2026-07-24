@@ -227,8 +227,10 @@ def safe_parse(source: str):
 # --- LLM05 taint analysis: model output -> dangerous sink -------------------
 
 # Variable/param names that carry model output (seed taint even without a call).
+# NB: `model`/`llm` name the *client*, not its output (model.generate() is caught
+# call-based via _is_llm_call) — excluded here to avoid tainting a model-name string.
 _OUTPUT_NAME = re.compile(
-    r"(?i)(\bllm|model|completion|response|\banswer|reply|generated|assistant|"
+    r"(?i)(completion|response|\banswer|reply|generated|assistant|"
     r"\boutput|\bresp\b|choices)")
 # Calls that produce model output — unconditional (method name is LLM-specific enough).
 _LLM_CALL_METHODS = {"create", "generate", "complete", "acreate", "acomplete",
