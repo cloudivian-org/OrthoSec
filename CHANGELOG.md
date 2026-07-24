@@ -4,6 +4,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Added
+- **Env-driven reporting** — every `orthosec scan` already writes the full HTML report;
+  now it's pinnable via `.env` with no flags: `ORTHOSEC_REPORT=<path>` (or `off` to
+  disable), `ORTHOSEC_OPEN=1` to open it in the browser after each scan, and
+  `ORTHOSEC_NO_EXEC=1` to skip the LLM briefing. CLI `--html` / `--no-report` / `--open`
+  override. Auto-open is guarded so a headless run never fails over it.
+
+### Fixed
+- **Print / Save-as-PDF now renders properly.** Printing forces a legible light palette
+  regardless of the on-screen theme (dark-mode text was invisible on white), paints
+  severity colors (`print-color-adjust: exact`), avoids splitting finding cards across
+  pages, and **expands every collapsed section** (data-flow traces + remediation plans)
+  via `beforeprint` JS plus a `::details-content` CSS fallback — so the PDF contains the
+  full detail, not collapsed summaries.
+
 ## [0.7.1] — 2026-07-24
 
 ### Fixed (precision — from scanning crewAI, a 1,269-file public repo)

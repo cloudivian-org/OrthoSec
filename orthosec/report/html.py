@@ -155,7 +155,31 @@ _TEMPLATE = r"""<!doctype html>
   .btnp { border:1px solid var(--line); background:var(--panel); color:var(--muted); font-size:12px;
     font-weight:650; padding:6px 12px; border-radius:8px; cursor:pointer; }
   .btnp:hover { color:var(--ink); border-color:var(--accent); }
-  @media print { .tabs, .btnp, .actionbar { display:none !important; } body { background:#fff; } .finding, .card, .fw, .exec, .summary { box-shadow:none; } }
+  @page { margin: 14mm; }
+  @media print {
+    /* Force a legible light palette regardless of the on-screen theme, and make
+       browsers actually paint severity colors (backgrounds are dropped by default). */
+    :root, :root[data-theme="dark"], :root[data-theme="light"] {
+      --bg:#fff; --panel:#fff; --panel2:#fff; --ink:#0f1720; --muted:#455; --line:#c9d2dd;
+      --accent:#0b7d71; --accent-ink:#fff; --crit:#c0392b; --high:#c05a26; --med:#9a6f16;
+      --low:#2f6fb0; --info:#6b7480; --good:#1f7a34; --shadow:none;
+    }
+    * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    html, body { background:#fff !important; }
+    .wrap { max-width:100%; padding:0; }
+    /* Hide interactive-only chrome */
+    .tabs, .btnp, .actionbar, .selbox { display:none !important; }
+    /* Keep cards, traces, and tables intact across page breaks */
+    .finding, .card, .fw, .exec, .summary, .cards > *, details, table, tr {
+      box-shadow:none !important; break-inside:avoid; page-break-inside:avoid; }
+    h2.section, .fh { break-after:avoid; }
+    /* Force every <details> (data-flow, remediation plan) fully expanded on paper */
+    details > summary { list-style:none; }
+    details > summary::before { content:"" !important; }
+    details > *:not(summary) { display:block !important; }
+    details::details-content { content-visibility:visible !important; display:block !important; }
+    a { color:inherit; text-decoration:none; }
+  }
   .conf { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; color:var(--muted);
     text-transform:capitalize; padding:2px 8px; border:1px solid var(--line); border-radius:20px; white-space:nowrap; }
   .conf .cdot { width:7px; height:7px; border-radius:50%; }
@@ -510,6 +534,18 @@ document.getElementById("copybtn").addEventListener("click",()=>{
   navigator.clipboard && navigator.clipboard.writeText(txt);
   const b=document.getElementById("copybtn"); b.textContent="Copied ✓"; setTimeout(()=>b.textContent="Copy command",1400);
 });
+// Expand every <details> for printing (data-flow traces + remediation plans), restore after.
+let _printOpened = [];
+function _openAllForPrint(){
+  _printOpened = [];
+  document.querySelectorAll("details:not([open])").forEach(d=>{ _printOpened.push(d); d.open=true; });
+}
+function _restoreAfterPrint(){ _printOpened.forEach(d=>d.open=false); _printOpened=[]; }
+window.addEventListener("beforeprint", _openAllForPrint);
+window.addEventListener("afterprint", _restoreAfterPrint);
+if(window.matchMedia){ const mq=window.matchMedia("print");
+  mq.addEventListener && mq.addEventListener("change", e=>{ e.matches ? _openAllForPrint() : _restoreAfterPrint(); }); }
+
 renderTabs(); render();
 </script>
 </body>

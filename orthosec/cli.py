@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from orthosec import __version__
@@ -48,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument("--write-baseline", metavar="FILE",
                         help="Record current findings as the baseline (accept them) and exit 0")
     p_scan.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
+    p_scan.add_argument("--open", action="store_true",
+                        help="Open the HTML report in your browser after the scan (env: ORTHOSEC_OPEN)")
     p_scan.add_argument("--fail-on", default=None,
                         choices=["critical", "high", "medium", "low", "none"],
                         help="Exit non-zero if a finding at/above this severity exists (default: high)")
@@ -163,8 +166,9 @@ def _cmd_scan(args) -> int:
         result.score = posture_score(result.findings)
         result.grade = _grade(result.score)
 
+    no_exec = args.no_exec or _env_true("ORTHOSEC_NO_EXEC")
     exec_summary = None
-    if not args.no_exec:
+    if not no_exec:
         from orthosec.intel.narrative import executive_summary
         exec_summary = executive_summary(result, profile=profile)
 
@@ -192,15 +196,39 @@ def _cmd_scan(args) -> int:
             json.dump(to_sarif(result), fh, indent=2)
         print(f"Wrote SARIF report -> {args.sarif}", file=sys.stderr)
 
-    # Auto-generate the detailed HTML report on every run unless suppressed.
-    report_path = args.html or (None if args.no_report else "orthosec-report.html")
+    # Auto-generate the detailed HTML report on every run. Path is env-configurable
+    # (ORTHOSEC_REPORT); set it to "off"/"none" to disable. --html / --no-report override.
+    report_path = _resolve_report_path(args)
     if report_path:
         from orthosec.report.html import render_html
         with open(report_path, "w", encoding="utf-8") as fh:
             fh.write(render_html(result, profile=profile.id, exec_summary=exec_summary))
         print(f"Report -> {report_path}", file=sys.stderr)
+        if args.open or _env_true("ORTHOSEC_OPEN"):
+            try:
+                import webbrowser
+                webbrowser.open("file://" + os.path.abspath(report_path))
+            except Exception:
+                pass   # headless / no browser — never fail a scan over opening a viewer
 
     return _exit_code(result, fail_on)
+
+
+def _env_true(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _resolve_report_path(args):
+    """Where to write the HTML report. Precedence: --html > --no-report > env
+    ORTHOSEC_REPORT > default. Env value 'off'/'none'/'0'/'false'/'no' disables."""
+    if args.html:
+        return args.html
+    if args.no_report:
+        return None
+    env = os.environ.get("ORTHOSEC_REPORT")
+    if env is not None:
+        return None if env.strip().lower() in ("off", "none", "0", "false", "no", "") else env
+    return "orthosec-report.html"
 
 
 def _cmd_ask(args) -> int:
