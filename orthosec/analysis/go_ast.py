@@ -147,12 +147,16 @@ def _refs(node, tainted: set) -> bool:
     return False
 
 
-def _expr_is_output(node, tainted: set) -> bool:
+def _expr_is_output(node, tainted: set, returns_out=()) -> bool:
     if node is not None and node.type == "call_expression" and _is_sanitizer_call(node):
         return False
     for n in _walk(node):
-        if n.type == "call_expression" and _is_llm_output_call(_callee_chain(n)):
-            return True
+        if n.type == "call_expression":
+            chain = _callee_chain(n)
+            if _is_llm_output_call(chain):
+                return True
+            if len(chain) == 1 and chain[0] in returns_out:   # x := localHelperReturningOutput()
+                return True
         if n.type == "identifier" and _text(n) in tainted:
             return True
     return False
@@ -234,50 +238,122 @@ def _scopes(root):
     return scopes or [root]
 
 
-def _taint_in_scope(scope):
-    decls = _decls(scope)
-    tainted = {name for name, val in decls
-               if _OUTPUT_NAME.search(name) and not _is_sanitizer_call(val)}
+def _taint_in_scope(scope, returns_out=()):
+    return _fixpoint(_decls(scope), {name for name, val in _decls(scope)
+                                     if _OUTPUT_NAME.search(name) and not _is_sanitizer_call(val)},
+                     returns_out)
+
+
+def _propagate_from(scope, seed, returns_out=()):
+    return _fixpoint(_decls(scope), set(seed), returns_out)
+
+
+def _fixpoint(decls, tainted, returns_out):
     changed = True
     while changed:
         changed = False
         for name, val in decls:
             if name in tainted:
                 continue
-            if _expr_is_output(val, tainted):
+            if _expr_is_output(val, tainted, returns_out):
                 tainted.add(name)
                 changed = True
     return tainted
+
+
+def _find_sinks(scope, tainted, add):
+    for n in _walk(scope):
+        if n.type != "call_expression":
+            continue
+        chain = _callee_chain(n)
+        argnode = n.child_by_field_name("arguments")
+        if not chain or not _refs(argnode, tainted):
+            continue
+        last = chain[-1].lower()
+        if last in ("command", "commandcontext") and any(p.lower() == "exec" for p in chain):
+            add(_line(n), "shell/command execution")
+        elif last in _DB_METHODS:
+            add(_line(n), "raw SQL execution")
+        elif last == "html" and any(p.lower() == "template" for p in chain):
+            add(_line(n), "HTML injection (template.HTML)")
+
+
+# ---- interprocedural (intra-file) -------------------------------------------
+
+def _functions(root):
+    funcs = {}
+    for n in _walk(root):
+        if n.type in ("function_declaration", "method_declaration"):
+            nm = n.child_by_field_name("name")
+            if nm is not None:
+                funcs[_text(nm)] = n
+    return funcs
+
+
+def _formal_params(fn):
+    p = fn.child_by_field_name("parameters")
+    names = []
+    if p is not None:
+        for pd in p.children:
+            if pd.type == "parameter_declaration":
+                names.extend(_text(c) for c in pd.children if c.type == "identifier")
+    return names
+
+
+def _has_sink_call(fn):
+    for n in _walk(fn):
+        if n.type == "call_expression":
+            chain = _callee_chain(n)
+            last = chain[-1].lower() if chain else ""
+            if (last in ("command", "commandcontext") or last in _DB_METHODS
+                    or last == "html"):
+                return True
+    return False
+
+
+def _returns_output(fn, returns_out):
+    tainted = _taint_in_scope(fn, returns_out)
+    for n in _walk(fn):
+        if n.type == "return_statement":
+            for c in n.children:
+                if c.type == "expression_list":
+                    if any(_expr_is_output(e, tainted, returns_out) for e in c.children):
+                        return True
+    return False
+
+
+def _dangerous_params(fn, returns_out):
+    params = _formal_params(fn)
+    if not params or not _has_sink_call(fn):
+        return params, set()
+    dangerous = set()
+    for p in params:
+        found = []
+        _find_sinks(fn, _propagate_from(fn, {p}, returns_out), lambda l, c: found.append(1))
+        if found:
+            dangerous.add(p)
+    return params, dangerous
+
+
+def _iter_calls(scope):
+    for n in _walk(scope):
+        if n.type != "call_expression":
+            continue
+        chain = _callee_chain(n)
+        if len(chain) != 1:
+            continue
+        argnode = n.child_by_field_name("arguments")
+        args = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]
+        yield n, chain[0], args
 
 
 def output_findings(src: str):
     root = _parse(src)
     if root is None:
         return None
-
-    out, seen = [], set()
-
-    def add(line, cap):
-        if (line, cap) not in seen:
-            seen.add((line, cap))
-            out.append((line, cap))
-
-    for scope in _scopes(root):
-        tainted = _taint_in_scope(scope)
-        if not tainted:
-            continue
-        for n in _walk(scope):
-            if n.type != "call_expression":
-                continue
-            chain = _callee_chain(n)
-            argnode = n.child_by_field_name("arguments")
-            if not chain or not _refs(argnode, tainted):
-                continue
-            last = chain[-1].lower()
-            if last in ("command", "commandcontext") and any(p.lower() == "exec" for p in chain):
-                add(_line(n), "shell/command execution")
-            elif last in _DB_METHODS:
-                add(_line(n), "raw SQL execution")
-            elif last == "html" and any(p.lower() == "template" for p in chain):
-                add(_line(n), "HTML injection (template.HTML)")
-    return out
+    from orthosec.analysis._interproc import interprocedural
+    return interprocedural(
+        functions=_functions(root), scopes=_scopes(root),
+        taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
+        returns_output=_returns_output, dangerous_params=_dangerous_params,
+        iter_calls=_iter_calls, refs=_refs, line=_line)
