@@ -290,7 +290,8 @@ _TEMPLATE = r"""<!doctype html>
     </div>
     <div style="display:flex; align-items:center; gap:12px">
       <div class="sub" id="genstamp"></div>
-      <button class="btnp" onclick="window.print()">Print / PDF</button>
+      <button class="btnp" onclick="downloadReport()">Download .html</button>
+      <button class="btnp" onclick="printReport()">Print / PDF</button>
     </div>
   </header>
 
@@ -534,6 +535,38 @@ document.getElementById("copybtn").addEventListener("click",()=>{
   navigator.clipboard && navigator.clipboard.writeText(txt);
   const b=document.getElementById("copybtn"); b.textContent="Copied ✓"; setTimeout(()=>b.textContent="Copy command",1400);
 });
+// Build a standalone, self-contained copy of this report (works even inside a
+// sandboxed iframe where window.print() is blocked). Strips any injected CSP so the
+// saved file's inline CSS/JS run when opened locally.
+function _standaloneHtml(){
+  _openAllForPrint();                                   // bake details open into the markup
+  let html = document.documentElement.outerHTML;
+  _restoreAfterPrint();
+  html = html.replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, "");
+  return "<!doctype html>\n" + html;
+}
+function downloadReport(){
+  const blob = new Blob([_standaloneHtml()], {type: "text/html"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "orthosec-report.html";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+function printReport(){
+  const sandboxed = window.self !== window.top;   // inside an artifact iframe?
+  if (!sandboxed) { window.print(); return; }      // local file: print dialog works
+  // Sandboxed iframe blocks the print dialog — open a standalone tab and print there.
+  let w = null;
+  try { w = window.open("", "_blank"); } catch(e) {}
+  if (w) {
+    w.document.write(_standaloneHtml()); w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  } else {
+    downloadReport();                              // popups blocked: save a printable file
+  }
+}
+
 // Expand every <details> for printing (data-flow traces + remediation plans), restore after.
 let _printOpened = [];
 function _openAllForPrint(){

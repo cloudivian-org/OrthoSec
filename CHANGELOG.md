@@ -4,6 +4,16 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.7.4] — 2026-07-24
+
+### Added
+- **Download button + sandbox-safe printing in the HTML report.** A new "Download .html"
+  button saves a self-contained, printable copy of the report (all `<details>` expanded,
+  any injected CSP stripped so inline CSS/JS run locally). "Print / PDF" now detects when
+  the report is embedded in a sandboxed iframe (e.g. a hosted preview where the print
+  dialog is blocked) and opens a standalone tab to print, falling back to download if
+  pop-ups are blocked. A report opened directly as a local file prints as before.
+
 ## [0.7.3] — 2026-07-24
 
 ### Fixed (precision — from scanning vercel/ai-chatbot and gpt-researcher)
