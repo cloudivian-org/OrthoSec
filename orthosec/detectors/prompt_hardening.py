@@ -35,6 +35,11 @@ _HARDENING = re.compile(
     r"(?i)(untrusted|do not follow|ignore any instructions|delimited by|<user_input>|"
     r"treat .* as data|never reveal|do not disclose your (system )?prompt)")
 _SECRET_IN_PROMPT = re.compile(r"(?i)(api[_-]?key|password|secret|token)\s*[:=]\s*\S")
+# Log / print / exception lines interpolate user input for diagnostics, not into a
+# prompt — the regex fallback must not read them as prompt injection (AST already skips).
+_LOG_LINE = re.compile(
+    r"(?i)(^|[^\w.])(logger|logging|log|print|console|warnings?|traceback|"
+    r"sys\.std(out|err)|pprint)\s*\.?\s*\w*\s*\(")
 
 _PI001_FIX = (
     "Separate instructions from data: place user input inside explicit delimiters, "
@@ -92,6 +97,8 @@ class PromptHardeningDetector:
             return
         for lineno, line in enumerate(lines, start=1):
             if _CONCAT_INJECTION.search(line):
+                if _LOG_LINE.search(line):        # a log/print of user input, not a prompt
+                    continue
                 window = "\n".join(lines[max(0, lineno - 4):lineno + 3])
                 if _HARDENING.search(window):
                     continue

@@ -47,6 +47,20 @@ def test_snapshots_dir_skipped(tmp_path):
     assert Scanner().scan(str(tmp_path)).findings == []
 
 
+def test_log_of_user_input_not_flagged_as_prompt_injection(tmp_path):
+    # regex-fallback path: a logger/print of user input is diagnostics, not a prompt
+    (tmp_path / "app.py").write_text(
+        'import logging\n'
+        'logger = logging.getLogger(__name__)\n'
+        'messages = [{"role": "system", "content": "You are a bot."}]\n'   # makes has_prompt true
+        'def handle(query):\n'
+        '    logger.error(f"Error processing query \'{query}\': done")\n'
+        '    print(f"got query {query}")\n')
+    findings = Scanner().scan(str(tmp_path)).findings
+    assert not any("logger" in (f.evidence or "") or "print(" in (f.evidence or "")
+                   for f in findings if f.rule_id == "ORTHO-PI-001")
+
+
 def test_bundled_assets_dir_skipped(tmp_path):
     d = tmp_path / "viz" / "assets"
     d.mkdir(parents=True)

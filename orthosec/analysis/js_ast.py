@@ -77,6 +77,18 @@ def _is_completion(chain: list) -> bool:
     return bool(set(chain) & {"completions", "messages", "responses", "chat"})
 
 
+# Calls that neutralize taint (escape / sanitize / render-with-escaping).
+_SANITIZER = {"rendertostring", "rendertostaticmarkup", "sanitize", "purify", "escape",
+              "escapehtml", "encodeuri", "encodeuricomponent", "striptags", "dompurify"}
+
+
+def _is_sanitizer_call(node) -> bool:
+    if not isinstance(node, dict) or node.get("type") != "CallExpression":
+        return False
+    chain = _member_chain(node.get("callee"))
+    return bool(chain) and str(chain[-1]).lower() in _SANITIZER
+
+
 def _has_cap(call: dict) -> bool:
     for arg in call.get("arguments", []) or []:
         if isinstance(arg, dict) and arg.get("type") == "ObjectExpression":
@@ -109,6 +121,8 @@ def unbounded_findings(src: str):
 
 
 def _expr_is_output(node, tainted: set) -> bool:
+    if _is_sanitizer_call(node):        # a sanitized value is clean, even if it wraps output
+        return False
     for n in _walk(node):
         if n.get("type") == "CallExpression" and _is_completion(_member_chain(n.get("callee"))):
             return True
@@ -131,7 +145,8 @@ def output_findings(src: str):
         elif n.get("type") == "AssignmentExpression" and (n.get("left") or {}).get("type") == "Identifier":
             decls.append((n["left"]["name"], n.get("right")))
 
-    tainted = {name for name, _ in decls if _OUTPUT_NAME.search(name)}
+    tainted = {name for name, val in decls
+               if _OUTPUT_NAME.search(name) and not _is_sanitizer_call(val)}
     changed = True
     while changed:
         changed = False

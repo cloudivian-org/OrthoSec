@@ -57,6 +57,27 @@ class TestTsAst(unittest.TestCase):
                 "}\n")
         assert ts_ast.output_findings(src2, tsx=False) == []
 
+    def test_sanitizer_clears_taint_before_html_sink(self):
+        # React renderToString auto-escapes -> innerHTML is safe -> no finding
+        react = ("function C({oldContent}: any){\n"
+                 "  const oldHtmlContent = renderToString(oldContent);\n"
+                 "  el.innerHTML = oldHtmlContent;\n"
+                 "}\n")
+        assert ts_ast.output_findings(react, tsx=True) == []
+        # DOMPurify.sanitize wrapping model output -> safe
+        purify = ("function C(model: any){\n"
+                  "  const out = DOMPurify.sanitize(model.invoke(q));\n"
+                  "  el.innerHTML = out;\n"
+                  "}\n")
+        assert ts_ast.output_findings(purify, tsx=False) == []
+
+    def test_unsanitized_output_still_fires(self):
+        raw = ("function C(model: any){\n"
+               "  const answer = model.invoke(q);\n"
+               "  el.innerHTML = answer;\n"
+               "}\n")
+        assert ts_ast.output_findings(raw, tsx=False)  # non-empty — regression guard
+
     def test_unbounded_uncapped_vs_capped(self):
         uncapped = "const r = await client.chat.completions.create({messages: m});\n"
         capped = "const r = await client.chat.completions.create({messages: m, max_tokens: 100});\n"

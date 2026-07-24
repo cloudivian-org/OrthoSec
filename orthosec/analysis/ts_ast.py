@@ -22,6 +22,18 @@ _LLM_RECEIVER = re.compile(
     r"(?i)(llm|chain|agent|chat|model|openai|anthropic|gemini|bedrock|ollama|groq|"
     r"cohere|mistral|queryengine|conversation|\brag\b|\bqa\b|assistant|completion)")
 _DB_RECEIVER = re.compile(r"(?i)(cursor|conn|connection|\bdb\b|database|session|sql|knex|prisma|pool|client)")
+# Calls that neutralize taint (escape / sanitize / render-with-escaping). A value
+# produced by one of these is safe to place in an HTML sink — e.g. React's
+# renderToString auto-escapes, DOMPurify.sanitize strips scripts.
+_SANITIZER = {"rendertostring", "rendertostaticmarkup", "sanitize", "purify", "escape",
+              "escapehtml", "encodeuri", "encodeuricomponent", "striptags", "dompurify"}
+
+
+def _is_sanitizer_call(node) -> bool:
+    if node is None or node.type != "call_expression":
+        return False
+    chain = _callee_chain(node)
+    return bool(chain) and chain[-1].lower() in _SANITIZER
 
 _CACHE: dict = {}
 
@@ -158,6 +170,9 @@ def _refs(node, tainted: set) -> bool:
 
 
 def _expr_is_output(node, tainted: set) -> bool:
+    # A value produced by a sanitizer is clean, even if it wraps model output.
+    if node is not None and node.type == "call_expression" and _is_sanitizer_call(node):
+        return False
     for n in _walk(node):
         if n.type == "call_expression" and _is_llm_output_call(_callee_chain(n)):
             return True
@@ -198,7 +213,9 @@ def output_findings(src: str, tsx: bool = True):
             if left is not None and left.type == "identifier":
                 decls.append((_text(left), right))
 
-    tainted = {name for name, _ in decls if _OUTPUT_NAME.search(name)}
+    # Seed by name — but a name-matched var assigned straight from a sanitizer is clean.
+    tainted = {name for name, val in decls
+               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
     changed = True
     while changed:
         changed = False

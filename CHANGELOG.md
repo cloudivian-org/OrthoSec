@@ -4,6 +4,25 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.7.3] — 2026-07-24
+
+### Fixed (precision — from scanning vercel/ai-chatbot and gpt-researcher)
+- **Sanitizer-awareness in the TS/JS taint engine.** Model output passed through a
+  sanitizer before an HTML sink is no longer flagged (LLM05). Recognized sanitizers:
+  React `renderToString`/`renderToStaticMarkup` (auto-escape), `DOMPurify.sanitize`,
+  `escape`/`escapeHtml`, `encodeURI`/`encodeURIComponent`, `striptags`. Killed the
+  `innerHTML = renderToString(...)` false positives; a raw unsanitized sink still fires.
+- **Log/print of user input is no longer read as prompt injection.** The LLM01 regex
+  fallback skips `logger.*` / `print` / `console.*` / `warnings` / `traceback` lines —
+  interpolating user input into a diagnostic log is not a prompt (the AST path already
+  ignored these; this brings the regex fallback in line).
+
+### Added
+- **Language-coverage roadmap** — a step-by-step plan (Go, Java/Kotlin, C#/.NET, Rust,
+  Ruby/PHP) built on the shared tree-sitter AST layer, ordered by AI-product usage.
+- **Known-limitation note** — run OrthoSec on Python ≥ the target's syntax (3.11+ for
+  modern repos) for full AST precision; older Python falls back to regex on newer files.
+
 ## [0.7.2] — 2026-07-24
 
 ### Added

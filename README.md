@@ -284,6 +284,7 @@ You are scanning your own source code, so egress matters. OrthoSec is offline by
 Static analysis is honest about what it can and can't see:
 
 - **TypeScript AST covers LLM05 + LLM10, not yet the full taint set.** With `orthosec[ts]` (tree-sitter), `.ts`/`.tsx`/`.jsx` get real AST analysis for model-output-into-sink (LLM05) and uncapped completions (LLM10). The deeper interprocedural/cross-module taint and prompt-injection (LLM01) tracing that Python has is still Python-only on TS; without the extra, TS falls back to regex.
+- **Run OrthoSec on a Python ≥ the target's syntax for full precision.** The Python detectors AST-parse target code; if the scanner runs on an *older* Python than the code it scans (e.g. 3.9 scanning a repo that uses 3.10+ `match`/syntax), that file can't be AST-parsed and falls back to the less-precise regex path (more findings to triage). Install OrthoSec on Python 3.11+ to scan modern codebases at full AST precision.
 - **Detectors reason about code, not runtime.** Tainted data reaching a sink through a database, queue, or network round-trip that OrthoSec can't follow may be missed.
 - **The intel layer explains, it never invents.** The business/compliance narrative is grounded in the deterministic findings; with `--no-exec` you lose the narrative, never a finding.
 
@@ -294,6 +295,27 @@ Found a false positive or a miss? That's the most valuable issue you can file �
 - **Shipped** — static scanner; four audience profiles; provider-agnostic intel (Anthropic + Azure Foundry); self-contained HTML report with remediation agents; runtime guard (`@guard`, Python + Node) and inline `orthosec proxy`; scheduling. **Full OWASP LLM Top-10 coverage** (11 detectors incl. AI-dependency supply-chain audit of `requirements.txt`/`package.json`) with **framework-aware** Python AST taint tracking (intra-, inter-, and cross-module) for LLM01/05/06; **TypeScript/JSX AST** (`orthosec[ts]`, tree-sitter) for LLM05/LLM10; baseline + inline suppression; `--diff` PR scanning; SARIF with stable fingerprints; PR-native GitHub Action. Published to PyPI (`pip install orthosec`) and npm (`@orthosec/guard`).
 - **Next** — extend TypeScript AST to interprocedural/cross-module taint + LLM01 (parity with Python); GitHub Marketplace listing; PDF export from the HTML report.
 - **Later** — managed dashboard; more compliance packs; org-wide baselines.
+
+### Language coverage roadmap
+
+AI products aren't only Python. OrthoSec's AST layer is built on **tree-sitter**, which
+has maintained grammars for every major language — so each new language is the same
+pattern (parse → taint the OWASP-LLM dataflows → reuse the detectors), added step by step
+in order of how widely it's used to *build AI products*:
+
+| # | Language | AI-product usage | Status |
+|---|----------|------------------|--------|
+| 1 | **Python** | The default for AI/ML, agents, RAG, training | ✅ Full — AST taint intra/inter/cross-module, framework-aware, all 11 detectors |
+| 2 | **TypeScript / JavaScript / JSX** | AI web apps, agent UIs, Node backends, SDKs | ✅ AST for LLM05/LLM10; taint parity (interproc/cross-module/LLM01) next |
+| 3 | **Go** | High-throughput inference gateways, agent backends, infra | ⏳ Planned (tree-sitter-go) |
+| 4 | **Java / Kotlin** | Enterprise AI services, Android AI apps | ⏳ Planned |
+| 5 | **C# / .NET** | Enterprise AI, Semantic Kernel, Azure-native apps | ⏳ Planned |
+| 6 | **Rust** | Inference engines, performance-critical AI infra | ⏳ Planned |
+| 7 | **Ruby / PHP** | AI features in Rails / Laravel product code | ⏳ Planned |
+
+Every language maps to the **same OWASP LLM Top-10 taxonomy and detectors** — the report,
+severity model, compliance mapping, and remediation agents are language-agnostic, so
+adding a language extends coverage without fragmenting the product.
 
 ## Architecture
 
