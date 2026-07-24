@@ -71,6 +71,37 @@ class TestJavaAst(unittest.TestCase):
             findings = Scanner().scan(d).findings
             assert any(f.owasp_llm == "LLM05" for f in findings)
 
+    def test_interproc_return_value_taint(self):
+        # helper RETURNS model output; caller assigns it, feeds to a SQL sink
+        src = ('class G {\n'
+               '  String getAnswer(ChatModel m){ return m.generate(q); }\n'
+               '  void h(Statement stmt) throws Exception {\n'
+               '    String answer = getAnswer(model);\n'
+               '    stmt.executeQuery(answer);\n'
+               '  }\n}\n')
+        assert java_ast.output_findings(src)  # non-empty
+
+    def test_interproc_param_sink(self):
+        # model output passed to a local helper whose param reaches a sink
+        src = ('class H {\n'
+               '  void sink(String x) throws Exception { Runtime.getRuntime().exec(x); }\n'
+               '  void h(ChatModel model) throws Exception {\n'
+               '    String answer = model.generate(q);\n'
+               '    sink(answer);\n'
+               '  }\n}\n')
+        caps = {cap for _, cap in java_ast.output_findings(src)}
+        assert any("helper" in c for c in caps)
+
+    def test_interproc_precision_non_model_arg(self):
+        # same helper, but the arg is NOT model output — no finding
+        src = ('class I {\n'
+               '  void sink(String x) throws Exception { Runtime.getRuntime().exec(x); }\n'
+               '  void h() throws Exception {\n'
+               '    String cfg = readConfig();\n'
+               '    sink(cfg);\n'
+               '  }\n}\n')
+        assert java_ast.output_findings(src) == []
+
 
 class TestJavaFallback(unittest.TestCase):
     def test_no_crash_without_grammar(self):

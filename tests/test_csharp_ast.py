@@ -85,6 +85,36 @@ class TestCSharpAst(unittest.TestCase):
                '  }\n}\n')
         assert any("SQL" in cap for _, cap in csharp_ast.output_findings(src))
 
+    def test_interproc_return_value_taints_caller(self):
+        # a local helper that RETURNS model output taints the caller's var
+        src = ('class I {\n'
+               '  string GetAnswer(IChatClient chat){ return chat.CompleteChat(q).Value.Content[0].Text; }\n'
+               '  void H(IChatClient chat, SqlConnection conn){\n'
+               '    var answer = GetAnswer(chat);\n'
+               '    var cmd = new SqlCommand(answer, conn);\n'
+               '  }\n}\n')
+        assert csharp_ast.output_findings(src)  # non-empty
+
+    def test_interproc_param_sink_flagged_at_call_site(self):
+        # model output passed to a local helper whose param reaches a sink
+        src = ('class J {\n'
+               '  void Sink(string x){ Process.Start("sh", x); }\n'
+               '  void H(IChatClient chat){\n'
+               '    var answer = chat.CompleteChat(q).Value.Content[0].Text;\n'
+               '    Sink(answer);\n'
+               '  }\n}\n')
+        assert any("helper" in cap for _, cap in csharp_ast.output_findings(src))
+
+    def test_interproc_precision_non_model_arg_not_flagged(self):
+        # same dangerous helper, but the arg is not model output -> no finding
+        src = ('class K {\n'
+               '  void Sink(string x){ Process.Start("sh", x); }\n'
+               '  void H(){\n'
+               '    var cfg = ReadConfig();\n'
+               '    Sink(cfg);\n'
+               '  }\n}\n')
+        assert csharp_ast.output_findings(src) == []
+
     def test_detector_end_to_end(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "H.cs").write_text(

@@ -32,6 +32,43 @@ class TestRubyAst(unittest.TestCase):
                "  def b(conn, answer); conn.execute(answer); end\nend\n")
         assert ruby_ast.output_findings(src) == []
 
+    def test_interproc_return_value(self):
+        # helper RETURNS model output; caller sinks the returned value -> flagged
+        src = ("class T\n"
+               "  def get_answer(client)\n"
+               "    return client.chat(p).dig(\"content\")\n"
+               "  end\n"
+               "  def run(client, conn)\n"
+               "    answer = get_answer(client)\n"
+               "    conn.execute(answer)\n"
+               "  end\nend\n")
+        assert ruby_ast.output_findings(src)  # non-empty
+
+    def test_interproc_param_sink(self):
+        # model output passed to a local helper whose PARAM reaches a sink -> flagged at call site
+        src = ("class T\n"
+               "  def sink(x)\n"
+               "    system(x)\n"
+               "  end\n"
+               "  def run(client)\n"
+               "    answer = client.chat(p).dig(\"content\")\n"
+               "    sink(answer)\n"
+               "  end\nend\n")
+        caps = {c for _, c in ruby_ast.output_findings(src)}
+        assert any("helper" in c for c in caps)
+
+    def test_interproc_precision_non_output(self):
+        # same dangerous helper, but a non-output value is passed -> no finding
+        src = ("class T\n"
+               "  def sink(x)\n"
+               "    system(x)\n"
+               "  end\n"
+               "  def run\n"
+               "    cfg = read_config\n"
+               "    sink(cfg)\n"
+               "  end\nend\n")
+        assert ruby_ast.output_findings(src) == []
+
     def test_end_to_end(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "a.rb").write_text(

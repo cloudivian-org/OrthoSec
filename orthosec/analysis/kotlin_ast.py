@@ -140,12 +140,16 @@ def _refs(node, tainted: set) -> bool:
     return False
 
 
-def _expr_is_output(node, tainted: set) -> bool:
+def _expr_is_output(node, tainted: set, returns_out=()) -> bool:
     if _is_sanitizer_call(node):
         return False
     for n in _walk(node):
-        if n.type == "call_expression" and _is_llm_output_call(_call_chain(n)):
-            return True
+        if n.type == "call_expression":
+            chain = _call_chain(n)
+            if _is_llm_output_call(chain):
+                return True
+            if len(chain) == 1 and chain[0] in returns_out:   # val x = localHelperReturningOutput()
+                return True
         if n.type in _ID_TYPES and _text(n) in tainted:
             return True
     return False
@@ -184,20 +188,144 @@ def _decls(scope):
     return out
 
 
-def _taint_in_scope(scope):
-    decls = _decls(scope)
-    tainted = {name for name, val in decls
-               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+def _fixpoint(decls, tainted, returns_out):
     changed = True
     while changed:
         changed = False
         for name, val in decls:
             if name in tainted or val is None:
                 continue
-            if _expr_is_output(val, tainted):
+            if _expr_is_output(val, tainted, returns_out):
                 tainted.add(name)
                 changed = True
     return tainted
+
+
+def _taint_in_scope(scope, returns_out=()):
+    decls = _decls(scope)
+    seed = {name for name, val in decls
+            if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return _fixpoint(decls, seed, returns_out)
+
+
+def _propagate_from(scope, seed, returns_out=()):
+    return _fixpoint(_decls(scope), set(seed), returns_out)
+
+
+def _find_sinks(scope, tainted, add):
+    for n in _walk(scope):
+        if n.type != "call_expression":
+            continue
+        chain = _call_chain(n)
+        if not chain or not _refs(_call_args(n), tainted):
+            continue
+        method = chain[-1].lower()
+        recv = [p.lower() for p in chain[:-1]]
+        if method == "exec" and any(p in ("runtime", "getruntime") for p in recv):
+            add(_line(n), "shell/command execution")
+        elif method == "processbuilder":            # constructor call (no `new` in Kotlin)
+            add(_line(n), "shell/command execution")
+        elif method in ("executequery", "executeupdate", "executelargeupdate",
+                        "createquery", "createnativequery"):
+            add(_line(n), "raw SQL execution")
+        elif method == "execute" and any(_DB_RECEIVER.search(p) for p in recv):
+            add(_line(n), "raw SQL execution")
+        elif method == "eval" and any("script" in p or "engine" in p for p in recv):
+            add(_line(n), "script execution (eval)")
+
+
+# ---- interprocedural (intra-file) -------------------------------------------
+
+def _functions(root):
+    """name -> function_declaration node. Kotlin has no fields; the function name is the
+    first simple_identifier direct child (after the `fun` keyword)."""
+    funcs = {}
+    for n in _walk(root):
+        if n.type == "function_declaration":
+            name = next((_text(c) for c in n.children if c.type in _ID_TYPES), None)
+            if name:
+                funcs[name] = n
+    return funcs
+
+
+def _formal_params(fn):
+    params = next((c for c in fn.children if c.type == "function_value_parameters"), None)
+    names = []
+    if params is not None:
+        for p in params.children:
+            if p.type == "parameter":
+                # param NAME is the first DIRECT simple_identifier child (before `:` type);
+                # _walk is reverse-order and would return the type instead.
+                nm = next((_text(c) for c in p.children if c.type in _ID_TYPES), None)
+                if nm:
+                    names.append(nm)
+    return names
+
+
+_SINK_METHODS = {"exec", "processbuilder", "executequery", "executeupdate",
+                 "executelargeupdate", "createquery", "createnativequery", "execute", "eval"}
+
+
+def _has_sink_call(fn):
+    for n in _walk(fn):
+        if n.type == "call_expression":
+            chain = _call_chain(n)
+            if chain and chain[-1].lower() in _SINK_METHODS:
+                return True
+    return False
+
+
+def _single_expr_body(fn):
+    """`fun f(...) = <expr>` — the body expression after `=` (wrapped in a
+    `function_body` node), or None for block bodies."""
+    body = next((c for c in fn.children if c.type == "function_body"), None)
+    if body is None:
+        return None
+    seen_eq = False
+    for c in body.children:
+        if seen_eq:
+            return c
+        if c.type == "=":
+            seen_eq = True
+    return None
+
+
+def _returns_output(fn, returns_out):
+    tainted = _taint_in_scope(fn, returns_out)
+    body = _single_expr_body(fn)
+    if body is not None and _expr_is_output(body, tainted, returns_out):
+        return True
+    for n in _walk(fn):
+        if n.type == "return_expression":               # Kotlin `return <expr>`
+            expr = next((c for c in n.children if c.type not in ("return",)), None)
+            if expr is not None and _expr_is_output(expr, tainted, returns_out):
+                return True
+    return False
+
+
+def _dangerous_params(fn, returns_out):
+    params = _formal_params(fn)
+    if not params or not _has_sink_call(fn):
+        return params, set()
+    dangerous = set()
+    for p in params:
+        found = []
+        _find_sinks(fn, _propagate_from(fn, {p}, returns_out), lambda l, c: found.append(1))
+        if found:
+            dangerous.add(p)
+    return params, dangerous
+
+
+def _iter_calls(scope):
+    for n in _walk(scope):
+        if n.type != "call_expression":
+            continue
+        chain = _call_chain(n)
+        if len(chain) != 1:                             # bare local call foo(...)
+            continue
+        args = _call_args(n)
+        arg_nodes = [a for a in (args.children if args else []) if a.type not in ("(", ")", ",")]
+        yield n, chain[0], arg_nodes
 
 
 def unbounded_findings(src: str):
@@ -209,35 +337,9 @@ def output_findings(src: str):
     root = _parse(src)
     if root is None:
         return None
-
-    out, seen = [], set()
-
-    def add(line, cap):
-        if (line, cap) not in seen:
-            seen.add((line, cap))
-            out.append((line, cap))
-
-    for scope in _scopes(root):
-        tainted = _taint_in_scope(scope)
-        if not tainted:
-            continue
-        for n in _walk(scope):
-            if n.type != "call_expression":
-                continue
-            chain = _call_chain(n)
-            if not chain or not _refs(_call_args(n), tainted):
-                continue
-            method = chain[-1].lower()
-            recv = [p.lower() for p in chain[:-1]]
-            if method == "exec" and any(p in ("runtime", "getruntime") for p in recv):
-                add(_line(n), "shell/command execution")
-            elif method == "processbuilder":            # constructor call (no `new` in Kotlin)
-                add(_line(n), "shell/command execution")
-            elif method in ("executequery", "executeupdate", "executelargeupdate",
-                            "createquery", "createnativequery"):
-                add(_line(n), "raw SQL execution")
-            elif method == "execute" and any(_DB_RECEIVER.search(p) for p in recv):
-                add(_line(n), "raw SQL execution")
-            elif method == "eval" and any("script" in p or "engine" in p for p in recv):
-                add(_line(n), "script execution (eval)")
-    return out
+    from orthosec.analysis._interproc import interprocedural
+    return interprocedural(
+        functions=_functions(root), scopes=_scopes(root),
+        taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
+        returns_output=_returns_output, dangerous_params=_dangerous_params,
+        iter_calls=_iter_calls, refs=_refs, line=_line)

@@ -38,6 +38,28 @@ class TestPhpAst(unittest.TestCase):
                "  function b($pdo, $answer){ $pdo->query($answer); }\n}\n")
         assert php_ast.output_findings(src) == []
 
+    def test_interproc_return_value(self):
+        # helper returns model output; caller's var inherits taint and hits a SQL sink
+        src = ("<?php\n"
+               "function get_answer($client){ return $client->chat()->create($p)->content; }\n"
+               "function run($client, $pdo){ $answer = get_answer($client); $pdo->query($answer); }\n")
+        assert php_ast.output_findings(src) != []
+
+    def test_interproc_param_sink(self):
+        # model output passed to a local helper whose param reaches exec()
+        src = ("<?php\n"
+               "function sink($x){ exec($x); }\n"
+               "function run($client){ $answer = $client->chat()->create($p)->content; sink($answer); }\n")
+        caps = {c for _, c in php_ast.output_findings(src)}
+        assert any("helper" in c for c in caps)
+
+    def test_interproc_precision(self):
+        # non-output value into the same helper — must NOT be flagged
+        src = ("<?php\n"
+               "function sink($x){ exec($x); }\n"
+               "function run(){ $cfg = read_config(); sink($cfg); }\n")
+        assert php_ast.output_findings(src) == []
+
     def test_end_to_end(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "a.php").write_text(

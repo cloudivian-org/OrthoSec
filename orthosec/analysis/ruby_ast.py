@@ -135,12 +135,16 @@ def _refs(node, tainted: set) -> bool:
     return False
 
 
-def _expr_is_output(node, tainted: set) -> bool:
+def _expr_is_output(node, tainted: set, returns_out=()) -> bool:
     if _is_sanitizer_call(node):
         return False
     for n in _walk(node):
-        if n.type == "call" and _is_llm_output_call(n):
-            return True
+        if n.type == "call":
+            if _is_llm_output_call(n):
+                return True
+            # bare local method call foo(args) whose helper returns model output
+            if not _receiver_idents(n) and _method_name(n) in returns_out:
+                return True
         if n.type == "identifier" and _text(n) in tainted:
             return True
     return False
@@ -154,63 +158,157 @@ def _scopes(root):
     return scopes or [root]
 
 
-def _taint_in_scope(scope):
+def _decls(scope):
+    """(name, value_node) pairs from `name = value` assignments in the scope."""
     decls = []
     for n in _walk(scope):
         if n.type == "assignment":
             left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
             if left is not None and left.type == "identifier":
                 decls.append((_text(left), right))
-    tainted = {name for name, val in decls
-               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return decls
+
+
+def _fixpoint(decls, tainted, returns_out):
     changed = True
     while changed:
         changed = False
         for name, val in decls:
             if name in tainted or val is None:
                 continue
-            if _expr_is_output(val, tainted):
+            if _expr_is_output(val, tainted, returns_out):
                 tainted.add(name)
                 changed = True
     return tainted
+
+
+def _taint_in_scope(scope, returns_out=()):
+    decls = _decls(scope)
+    seed = {name for name, val in decls
+            if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return _fixpoint(decls, seed, returns_out)
+
+
+def _propagate_from(scope, seed, returns_out=()):
+    return _fixpoint(_decls(scope), set(seed), returns_out)
+
+
+def _find_sinks(scope, tainted, add):
+    for n in _walk(scope):
+        if n.type != "call":
+            continue
+        args = n.child_by_field_name("arguments")
+        if not _refs(args, tainted):
+            continue
+        meth = _method_name(n).lower()
+        recv = [p.lower() for p in _receiver_idents(n)]
+        if meth in _SHELL_BARE and not recv:
+            add(_line(n), "shell/command execution")
+        elif meth in _SHELL_RECV:
+            add(_line(n), "shell/command execution")
+        elif meth in _SQL_METHODS and (not recv or any(r not in ("params",) for r in recv)):
+            add(_line(n), "raw SQL execution")
+        elif meth in _EVAL_METHODS:
+            add(_line(n), "code execution (eval)")
+        elif meth in _HTML_METHODS:
+            add(_line(n), "HTML injection (raw/html_safe)")
 
 
 def unbounded_findings(src: str):
     return None
 
 
+# ---- interprocedural (intra-file) -------------------------------------------
+
+_SINK_METHODS = _SHELL_BARE | _SHELL_RECV | _SQL_METHODS | _EVAL_METHODS | _HTML_METHODS
+
+
+def _functions(root):
+    funcs = {}
+    for n in _walk(root):
+        if n.type in ("method", "singleton_method"):
+            nm = n.child_by_field_name("name")
+            if nm is not None:
+                funcs[_text(nm)] = n
+    return funcs
+
+
+def _formal_params(fn):
+    p = fn.child_by_field_name("parameters")
+    names = []
+    if p is None:
+        return names
+    for pd in p.children:
+        if pd.type in ("(", ")", ","):
+            continue
+        if pd.type == "identifier":
+            names.append(_text(pd))
+        else:                       # optional/keyword/splat/block params: first identifier is the name
+            for c in pd.children:
+                if c.type == "identifier":
+                    names.append(_text(c))
+                    break
+    return names
+
+
+def _has_sink_call(fn):
+    for n in _walk(fn):
+        if n.type == "call" and _method_name(n).lower() in _SINK_METHODS:
+            return True
+    return False
+
+
+def _returns_output(fn, returns_out):
+    tainted = _taint_in_scope(fn, returns_out)
+    for n in _walk(fn):
+        if n.type == "return":
+            for c in n.children:
+                if c.type == "argument_list":
+                    if any(_expr_is_output(e, tainted, returns_out)
+                           for e in c.children if e.type not in ("(", ")", ",")):
+                        return True
+    # Implicit return: Ruby returns the last evaluated expression of the body.
+    body = fn.child_by_field_name("body")
+    if body is not None:
+        last = None
+        for c in reversed(body.children):
+            if c.type != "comment":
+                last = c
+                break
+        if last is not None and _expr_is_output(last, tainted, returns_out):
+            return True
+    return False
+
+
+def _dangerous_params(fn, returns_out):
+    params = _formal_params(fn)
+    if not params or not _has_sink_call(fn):
+        return params, set()
+    dangerous = set()
+    for p in params:
+        found = []
+        _find_sinks(fn, _propagate_from(fn, {p}, returns_out), lambda l, c: found.append(1))
+        if found:
+            dangerous.add(p)
+    return params, dangerous
+
+
+def _iter_calls(scope):
+    for n in _walk(scope):
+        if n.type != "call" or _receiver_idents(n):
+            continue                                     # only bare local method calls
+        argnode = n.child_by_field_name("arguments")
+        args = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]
+        yield n, _method_name(n), args
+
+
 def output_findings(src: str):
     root = _parse(src)
     if root is None:
         return None
-
-    out, seen = [], set()
-
-    def add(line, cap):
-        if (line, cap) not in seen:
-            seen.add((line, cap))
-            out.append((line, cap))
-
-    for scope in _scopes(root):
-        tainted = _taint_in_scope(scope)
-        if not tainted:
-            continue
-        for n in _walk(scope):
-            if n.type != "call":
-                continue
-            args = n.child_by_field_name("arguments")
-            if not _refs(args, tainted):
-                continue
-            meth = _method_name(n).lower()
-            recv = [p.lower() for p in _receiver_idents(n)]
-            if meth in _SHELL_BARE and not recv:
-                add(_line(n), "shell/command execution")
-            elif meth in _SHELL_RECV:
-                add(_line(n), "shell/command execution")
-            elif meth in _SQL_METHODS and (not recv or any(r not in ("params",) for r in recv)):
-                add(_line(n), "raw SQL execution")
-            elif meth in _EVAL_METHODS:
-                add(_line(n), "code execution (eval)")
-            elif meth in _HTML_METHODS:
-                add(_line(n), "HTML injection (raw/html_safe)")
-    return out
+    from orthosec.analysis._interproc import interprocedural
+    return interprocedural(
+        functions=_functions(root), scopes=_scopes(root),
+        taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
+        returns_output=_returns_output, dangerous_params=_dangerous_params,
+        iter_calls=_iter_calls, refs=_refs, line=_line)

@@ -150,11 +150,15 @@ def _first_arg(args):
     return None
 
 
-def _expr_is_output(node, tainted: set) -> bool:
+def _expr_is_output(node, tainted: set, returns_out=()) -> bool:
     if _is_sanitizer_call(node):
         return False
     for n in _walk(node):
         if n.type in _CALL_TYPES and _is_llm_output_call(n):
+            return True
+        # A bare local call `foo($x)` (function_call_expression, plain `name` function)
+        # to a helper that returns model output taints the result.
+        if n.type == "function_call_expression" and _call_method(n) in returns_out:
             return True
         if n.type == "variable_name" and _var_name(n) in tainted:
             return True
@@ -170,25 +174,139 @@ def _scopes(root):
     return scopes or [root]
 
 
-def _taint_in_scope(scope):
+def _decls(scope):
+    """(name, value_node) pairs from `$x = ...` assignments (variable_name left)."""
     decls = []
     for n in _walk(scope):
         if n.type == "assignment_expression":
             left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
             if left is not None and left.type == "variable_name":
                 decls.append((_var_name(left), right))
-    tainted = {name for name, val in decls
-               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return decls
+
+
+def _fixpoint(decls, tainted, returns_out):
     changed = True
     while changed:
         changed = False
         for name, val in decls:
             if name in tainted or val is None:
                 continue
-            if _expr_is_output(val, tainted):
+            if _expr_is_output(val, tainted, returns_out):
                 tainted.add(name)
                 changed = True
     return tainted
+
+
+def _taint_in_scope(scope, returns_out=()):
+    decls = _decls(scope)
+    seed = {name for name, val in decls
+            if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return _fixpoint(decls, seed, returns_out)
+
+
+def _propagate_from(scope, seed, returns_out=()):
+    return _fixpoint(_decls(scope), set(seed), returns_out)
+
+
+def _find_sinks(scope, tainted, add):
+    for n in _walk(scope):
+        # NB: `echo`/`print` of model output is intentionally NOT flagged — it is
+        # context-dependent (a CLI script echoes to a terminal, not HTML) and produced
+        # overwhelming noise on real code. Only unambiguous exec/SQL/eval sinks fire.
+        if n.type not in _CALL_TYPES:
+            continue
+        # Only the first argument is the injection payload (command / SQL string).
+        if not _refs(_first_arg(n.child_by_field_name("arguments")), tainted):
+            continue
+        meth = _call_method(n).lower()
+        recv = [p.lower() for p in _call_receiver(n)]
+        if n.type == "function_call_expression":
+            if meth in _SHELL_FUNCS:
+                add(_line(n), "shell/command execution")
+            elif meth == "eval":
+                add(_line(n), "code execution (eval)")
+        else:  # member / scoped / nullsafe call
+            if meth in _SQL_METHODS and (any(_DB_RECEIVER.search(r) for r in recv)
+                                         or meth.endswith("raw") or meth == "statement"):
+                add(_line(n), "raw SQL execution")
+
+
+# ---- interprocedural (intra-file) -------------------------------------------
+
+def _functions(root):
+    funcs = {}
+    for n in _walk(root):
+        if n.type in ("function_definition", "method_declaration"):
+            nm = n.child_by_field_name("name")
+            if nm is not None:
+                funcs[_text(nm)] = n
+    return funcs
+
+
+def _formal_params(fn):
+    p = fn.child_by_field_name("parameters")
+    names = []
+    if p is not None:
+        for pd in p.children:
+            if pd.type in ("simple_parameter", "property_promotion_parameter", "variadic_parameter"):
+                for c in pd.children:
+                    if c.type == "variable_name":
+                        names.append(_var_name(c))
+                        break
+    return names
+
+
+def _has_sink_call(fn):
+    for n in _walk(fn):
+        if n.type == "function_call_expression":
+            meth = _call_method(n).lower()
+            if meth in _SHELL_FUNCS or meth == "eval":
+                return True
+        elif n.type in _CALL_TYPES:            # member / scoped / nullsafe
+            if _call_method(n).lower() in _SQL_METHODS:
+                return True
+    return False
+
+
+def _returns_output(fn, returns_out):
+    tainted = _taint_in_scope(fn, returns_out)
+    for n in _walk(fn):
+        if n.type != "return_statement":
+            continue
+        expr = None
+        for c in n.children:
+            if c.type not in ("return", ";"):
+                expr = c
+                break
+        if expr is not None and _expr_is_output(expr, tainted, returns_out):
+            return True
+    return False
+
+
+def _dangerous_params(fn, returns_out):
+    params = _formal_params(fn)
+    if not params or not _has_sink_call(fn):
+        return params, set()
+    dangerous = set()
+    for p in params:
+        found = []
+        _find_sinks(fn, _propagate_from(fn, {p}, returns_out), lambda l, c: found.append(1))
+        if found:
+            dangerous.add(p)
+    return params, dangerous
+
+
+def _iter_calls(scope):
+    for n in _walk(scope):
+        if n.type != "function_call_expression":
+            continue
+        fn = n.child_by_field_name("function")
+        if fn is None or fn.type != "name":     # bare local call foo(...), not $fn()/method
+            continue
+        argnode = n.child_by_field_name("arguments")
+        args = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]
+        yield n, _call_method(n), args
 
 
 def unbounded_findings(src: str):
@@ -199,36 +317,9 @@ def output_findings(src: str):
     root = _parse(src)
     if root is None:
         return None
-
-    out, seen = [], set()
-
-    def add(line, cap):
-        if (line, cap) not in seen:
-            seen.add((line, cap))
-            out.append((line, cap))
-
-    for scope in _scopes(root):
-        tainted = _taint_in_scope(scope)
-        if not tainted:
-            continue
-        for n in _walk(scope):
-            # NB: `echo`/`print` of model output is intentionally NOT flagged — it is
-            # context-dependent (a CLI script echoes to a terminal, not HTML) and produced
-            # overwhelming noise on real code. Only unambiguous exec/SQL/eval sinks fire.
-            if n.type not in _CALL_TYPES:
-                continue
-            # Only the first argument is the injection payload (command / SQL string).
-            if not _refs(_first_arg(n.child_by_field_name("arguments")), tainted):
-                continue
-            meth = _call_method(n).lower()
-            recv = [p.lower() for p in _call_receiver(n)]
-            if n.type == "function_call_expression":
-                if meth in _SHELL_FUNCS:
-                    add(_line(n), "shell/command execution")
-                elif meth == "eval":
-                    add(_line(n), "code execution (eval)")
-            else:  # member / scoped / nullsafe call
-                if meth in _SQL_METHODS and (any(_DB_RECEIVER.search(r) for r in recv)
-                                             or meth.endswith("raw") or meth == "statement"):
-                    add(_line(n), "raw SQL execution")
-    return out
+    from orthosec.analysis._interproc import interprocedural
+    return interprocedural(
+        functions=_functions(root), scopes=_scopes(root),
+        taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
+        returns_output=_returns_output, dangerous_params=_dangerous_params,
+        iter_calls=_iter_calls, refs=_refs, line=_line)

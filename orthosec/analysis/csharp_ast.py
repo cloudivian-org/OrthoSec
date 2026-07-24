@@ -146,12 +146,16 @@ def _refs(node, tainted: set) -> bool:
     return False
 
 
-def _expr_is_output(node, tainted: set) -> bool:
+def _expr_is_output(node, tainted: set, returns_out=()) -> bool:
     if _is_sanitizer_call(node):
         return False
     for n in _walk(node):
-        if n.type == "invocation_expression" and _is_llm_output_call(_callee_chain(n)):
-            return True
+        if n.type == "invocation_expression":
+            chain = _callee_chain(n)
+            if _is_llm_output_call(chain):
+                return True
+            if len(chain) == 1 and chain[0] in returns_out:   # var x = LocalHelperReturningOutput(...)
+                return True
         if n.type == "identifier" and _text(n) in tainted:
             return True
     return False
@@ -173,7 +177,7 @@ def _decl_value(vd):
     return kids[-1] if kids else None
 
 
-def _taint_in_scope(scope):
+def _decls(scope):
     decls = []
     for n in _walk(scope):
         if n.type == "variable_declarator":
@@ -188,18 +192,31 @@ def _taint_in_scope(scope):
             left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
             if left is not None and left.type == "identifier":
                 decls.append((_text(left), right))
-    tainted = {name for name, val in decls
-               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return decls
+
+
+def _fixpoint(decls, tainted, returns_out):
     changed = True
     while changed:
         changed = False
         for name, val in decls:
             if name in tainted or val is None:
                 continue
-            if _expr_is_output(val, tainted):
+            if _expr_is_output(val, tainted, returns_out):
                 tainted.add(name)
                 changed = True
     return tainted
+
+
+def _taint_in_scope(scope, returns_out=()):
+    decls = _decls(scope)
+    tainted = {name for name, val in decls
+               if _OUTPUT_NAME.search(name) and not (val is not None and _is_sanitizer_call(val))}
+    return _fixpoint(decls, tainted, returns_out)
+
+
+def _propagate_from(scope, seed, returns_out=()):
+    return _fixpoint(_decls(scope), set(seed), returns_out)
 
 
 def unbounded_findings(src: str):
@@ -207,42 +224,112 @@ def unbounded_findings(src: str):
     return None
 
 
+def _find_sinks(scope, tainted, add):
+    for n in _walk(scope):
+        if n.type == "object_creation_expression":
+            typ = n.child_by_field_name("type")
+            if typ is not None and _text(typ).lower() in _SQL_CMD_TYPES \
+                    and _refs(n.child_by_field_name("arguments"), tainted):
+                add(_line(n), "raw SQL execution")
+        elif n.type == "invocation_expression":
+            chain = _callee_chain(n)
+            if not chain or not _refs(n.child_by_field_name("arguments"), tainted):
+                continue
+            name = chain[-1].lower()
+            recv = [p.lower() for p in chain[:-1]]
+            if name == "start" and any("process" in p for p in recv):
+                add(_line(n), "shell/command execution")
+            elif name in ("fromsqlraw", "executesqlraw", "executesqlrawasync"):
+                add(_line(n), "raw SQL execution")
+            elif name in _SQL_METHODS and any(_DB_RECEIVER.search(p) for p in recv):
+                add(_line(n), "raw SQL execution")
+            elif name == "raw" and any("html" in p for p in recv):
+                add(_line(n), "HTML injection (Html.Raw)")
+            elif name in ("evaluateasync", "runasync") and any("script" in p for p in recv):
+                add(_line(n), "script execution (eval)")
+
+
+# ---- interprocedural (intra-file) -------------------------------------------
+
+def _functions(root):
+    funcs = {}
+    for n in _walk(root):
+        if n.type in ("method_declaration", "constructor_declaration",
+                      "local_function_statement"):
+            nm = n.child_by_field_name("name")
+            if nm is not None:
+                funcs[_text(nm)] = n
+    return funcs
+
+
+def _formal_params(fn):
+    p = fn.child_by_field_name("parameters")
+    names = []
+    if p is not None:
+        for pd in p.children:
+            if pd.type == "parameter":
+                nm = pd.child_by_field_name("name")
+                if nm is not None:
+                    names.append(_text(nm))
+    return names
+
+
+def _has_sink_call(fn):
+    for n in _walk(fn):
+        if n.type == "object_creation_expression":
+            typ = n.child_by_field_name("type")
+            if typ is not None and _text(typ).lower() in _SQL_CMD_TYPES:
+                return True
+        elif n.type == "invocation_expression":
+            chain = _callee_chain(n)
+            last = chain[-1].lower() if chain else ""
+            if last in ("start", "raw", "evaluateasync", "runasync") or last in _SQL_METHODS:
+                return True
+    return False
+
+
+def _returns_output(fn, returns_out):
+    tainted = _taint_in_scope(fn, returns_out)
+    for n in _walk(fn):
+        if n.type == "return_statement":
+            expr = next((c for c in n.children if c.type not in ("return", ";")), None)
+            if expr is not None and _expr_is_output(expr, tainted, returns_out):
+                return True
+    return False
+
+
+def _dangerous_params(fn, returns_out):
+    params = _formal_params(fn)
+    if not params or not _has_sink_call(fn):
+        return params, set()
+    dangerous = set()
+    for p in params:
+        found = []
+        _find_sinks(fn, _propagate_from(fn, {p}, returns_out), lambda l, c: found.append(1))
+        if found:
+            dangerous.add(p)
+    return params, dangerous
+
+
+def _iter_calls(scope):
+    for n in _walk(scope):
+        if n.type != "invocation_expression":
+            continue
+        chain = _callee_chain(n)
+        if len(chain) != 1:                     # only bare local calls: Foo(x)
+            continue
+        argnode = n.child_by_field_name("arguments")
+        args = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]
+        yield n, chain[0], args
+
+
 def output_findings(src: str):
     root = _parse(src)
     if root is None:
         return None
-
-    out, seen = [], set()
-
-    def add(line, cap):
-        if (line, cap) not in seen:
-            seen.add((line, cap))
-            out.append((line, cap))
-
-    for scope in _scopes(root):
-        tainted = _taint_in_scope(scope)
-        if not tainted:
-            continue
-        for n in _walk(scope):
-            if n.type == "object_creation_expression":
-                typ = n.child_by_field_name("type")
-                if typ is not None and _text(typ).lower() in _SQL_CMD_TYPES \
-                        and _refs(n.child_by_field_name("arguments"), tainted):
-                    add(_line(n), "raw SQL execution")
-            elif n.type == "invocation_expression":
-                chain = _callee_chain(n)
-                if not chain or not _refs(n.child_by_field_name("arguments"), tainted):
-                    continue
-                name = chain[-1].lower()
-                recv = [p.lower() for p in chain[:-1]]
-                if name == "start" and any("process" in p for p in recv):
-                    add(_line(n), "shell/command execution")
-                elif name in ("fromsqlraw", "executesqlraw", "executesqlrawasync"):
-                    add(_line(n), "raw SQL execution")
-                elif name in _SQL_METHODS and any(_DB_RECEIVER.search(p) for p in recv):
-                    add(_line(n), "raw SQL execution")
-                elif name == "raw" and any("html" in p for p in recv):
-                    add(_line(n), "HTML injection (Html.Raw)")
-                elif name in ("evaluateasync", "runasync") and any("script" in p for p in recv):
-                    add(_line(n), "script execution (eval)")
-    return out
+    from orthosec.analysis._interproc import interprocedural
+    return interprocedural(
+        functions=_functions(root), scopes=_scopes(root),
+        taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
+        returns_output=_returns_output, dangerous_params=_dangerous_params,
+        iter_calls=_iter_calls, refs=_refs, line=_line)

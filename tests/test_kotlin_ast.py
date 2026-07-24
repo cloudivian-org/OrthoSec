@@ -82,3 +82,34 @@ class TestKotlinFallback(unittest.TestCase):
                 assert Scanner().scan(d).errors == []
         finally:
             mod.available = orig
+
+
+import unittest as _ut
+from orthosec.analysis import kotlin_ast as _k
+
+
+@_ut.skipUnless(_k.available(), "tree-sitter-kotlin not installed")
+class TestKotlinInterproc(_ut.TestCase):
+    def test_return_value(self):
+        src = ("class A {\n"
+               "  fun getReply(llm: Any): String { return llm.chat(p) }\n"
+               "  fun run(llm: Any, stmt: Any) { val x = getReply(llm); stmt.executeQuery(x) }\n}\n")
+        assert _k.output_findings(src)
+
+    def test_single_expr_helper(self):
+        src = ("class A {\n"
+               "  fun getReply(llm: Any) = llm.chat(p)\n"
+               "  fun run(llm: Any, stmt: Any) { val x = getReply(llm); stmt.executeQuery(x) }\n}\n")
+        assert _k.output_findings(src)
+
+    def test_param_sink(self):
+        src = ("class B {\n"
+               "  fun sink(x: String) { Runtime.getRuntime().exec(x) }\n"
+               "  fun run(llm: Any) { val reply = llm.chat(p); sink(reply) }\n}\n")
+        assert any("helper" in c for _, c in _k.output_findings(src))
+
+    def test_precision_non_output(self):
+        src = ("class C {\n"
+               "  fun sink(x: String) { Runtime.getRuntime().exec(x) }\n"
+               "  fun run() { val cfg = readConfig(); sink(cfg) }\n}\n")
+        assert _k.output_findings(src) == []

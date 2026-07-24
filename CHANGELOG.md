@@ -4,6 +4,24 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-07-24
+
+### Added
+- **Interprocedural taint for Go, Java, Kotlin, C#, Ruby, and PHP** (LLM05) — completing
+  the depth rollout begun with TypeScript in 0.8.1. All eight tree-sitter languages now
+  follow model output **across local function calls** within a file, via a shared engine
+  (`orthosec/analysis/_interproc.py`): a helper that returns model output taints the
+  caller's variable, and model output passed to a local helper whose parameter reaches a
+  sink is flagged at the call site. Sanitizers, per-function scoping, and each language's
+  precision fixes are preserved.
+- This immediately paid off on a real repo: scanning **langchain4j** surfaced a genuine
+  finding the intra-function analyzer couldn't see — its experimental
+  `SqlDatabaseContentRetriever` runs **LLM-generated SQL** through a local `execute(sqlQuery,
+  statement)` helper into `statement.executeQuery(...)`. Validation across langchaingo,
+  langchain4j, BotSharp, semantic-kernel, discourse-ai, langchainrb, instructor-php,
+  LLPhant and ai-chatbot showed **0 new false positives** and BotSharp's real LLM→SQLi
+  findings intact. Benchmark 100% / 0 FP, adversarial 14/14, 213 tests.
+
 ## [0.8.1] — 2026-07-24
 
 ### Added
