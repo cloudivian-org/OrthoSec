@@ -48,6 +48,7 @@ _TREESITTER = {
     ".cs": ("csharp_ast", (".cs",)),
     ".rb": ("ruby_ast", (".rb",)),
     ".php": ("php_ast", (".php",)),
+    ".rs": ("rust_ast", (".rs",)),
 }
 _TS_FAMILY = (".ts", ".tsx", ".jsx", ".js")
 
@@ -98,7 +99,7 @@ class OutputHandlingDetector:
             if suffix == ".py":
                 yield from self._scan_python(ctx, path, text)
             elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs",
-                            ".rb", ".php"}:
+                            ".rb", ".php", ".rs"}:
                 yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:

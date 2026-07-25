@@ -57,7 +57,8 @@ _LOG_LINE = re.compile(
 _JS_FAMILY = {".ts", ".tsx", ".jsx", ".js"}
 _TS_LANG = {".ts": "ts_ast", ".tsx": "ts_ast", ".jsx": "ts_ast", ".js": "ts_ast",
             ".go": "go_ast", ".java": "java_ast", ".kt": "kotlin_ast",
-            ".cs": "csharp_ast", ".rb": "ruby_ast", ".php": "php_ast"}
+            ".cs": "csharp_ast", ".rb": "ruby_ast", ".php": "php_ast",
+            ".rs": "rust_ast"}
 
 _PI001_FIX = (
     "Separate instructions from data: place user input inside explicit delimiters, "

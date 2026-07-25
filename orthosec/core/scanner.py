@@ -24,7 +24,7 @@ _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cac
               # bundled / vendored front-end assets (compiled output, not app logic)
               "assets"}
 _TEXT_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs", ".rb",
-             ".php", ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".env", ".cfg",
+             ".php", ".rs", ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".env", ".cfg",
              ".ini", ".sh", ".ipynb", ".prompt"}
 _MAX_BYTES = 2_000_000  # skip files larger than 2MB
 # Build artifacts / bundles / lockfiles — not source; frequent false-positive sources.

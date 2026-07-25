@@ -51,6 +51,13 @@ class TestUrlHelpers(unittest.TestCase):
             gitclone.redact("https://x-access-token:ghp_secret@github.com/o/r.git"),
             "https://github.com/o/r.git")
 
+    def test_default_username_by_host(self):
+        self.assertEqual(gitclone.default_username("https://github.com/o/r.git"), "x-access-token")
+        self.assertEqual(gitclone.default_username("git@github.com:o/r.git"), "x-access-token")
+        self.assertEqual(gitclone.default_username("https://gitlab.com/o/r.git"), "oauth2")
+        self.assertEqual(gitclone.default_username("https://bitbucket.org/o/r.git"), "x-token-auth")
+        self.assertEqual(gitclone.default_username("https://git.acme.internal/o/r.git"), "x-access-token")
+
     def test_token_from_env(self):
         self.assertEqual(gitclone.token_from_env({"GITHUB_TOKEN": "abc"}), "abc")
         self.assertEqual(

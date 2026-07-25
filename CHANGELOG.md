@@ -4,6 +4,29 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-07-25
+
+### Added
+- **Rust language support (`orthosec[rust]`, tree-sitter) — the 9th language and the last
+  roadmap language.** `.rs` files get full AST taint for **LLM05** (model output into
+  `Command::new`/`.arg` shell exec, `sqlx::query` / `sql_query` / `conn.execute` raw SQL,
+  `Html(…)` XSS) and **LLM01** (untrusted input into a `.preamble()` / `.system()` builder
+  or a `system_prompt` binding), with intra-function + **interprocedural** + **cross-module**
+  depth — framework-aware of async-openai, rig, ollama-rs, genai. Sanitizers
+  (`shell_escape::escape`, `html_escape::encode`) and parameterized `sqlx::query("…").bind()`
+  are recognized as safe. `orthosec/analysis/rust_ast.py`, `tests/test_rust_ast.py` (15 tests).
+  - **Validated FP-free on 6 real Rust repos** (rig, graniet/llm, langchain-rust, orch,
+    fireside-chat, smartgpt; ~1,700 `.rs`). Fixed two false-positive classes found there:
+    an internal `completion_request` struct name matching the untrusted-input seed (rig: 24
+    → 0 LLM01), and an inline sanitizer at a sink not clearing taint. Redis `.arg()` is
+    correctly not treated as shell.
+- **Host-aware token username for private clones.** `orthosec scan <private-url>` now picks
+  the right default token username per host — `x-access-token` (GitHub), `oauth2` (GitLab),
+  `x-token-auth` (Bitbucket) — still overridable with `--git-username`.
+
+### Packaging
+- `tree-sitter-rust` pinned `<0.24` (0.24.x targets a newer tree-sitter core ABI).
+
 ## [0.9.2] — 2026-07-25
 
 ### Added

@@ -233,7 +233,7 @@ Behavior detectors **ignore comments and negation** (a `# no confirmation` comme
 
 **Dataflow, not line-proximity.** The three dataflow detectors — untrusted input → system prompt (LLM01), model output → dangerous sink (LLM05), and dangerous sink inside a model-invokable tool (LLM06) — fire only when the *actual* data reaches the *actual* sink. They trace it at any distance: **intra-function → interprocedural (across calls) → cross-module (import-resolved, including re-export chains)**, respecting trust-boundary and sanitizer mitigations. Tracking is **framework-aware** — it recognizes model output from LangChain / LlamaIndex / OpenAI / Anthropic call shapes (`chain.invoke`, `query_engine.query`, `chat.completions.create`, …) and untrusted input from Flask / FastAPI / Django request objects.
 
-### Eight languages, same depth
+### Nine languages, same depth
 
 Python uses the stdlib `ast`; every other language uses **tree-sitter** (JavaScript uses esprima), each an optional extra. Without a language's extra, its files fall back to regex automatically — no crash.
 
@@ -248,8 +248,9 @@ Python uses the stdlib `ast`; every other language uses **tree-sitter** (JavaScr
 | **C# / .NET** | `orthosec[csharp]` | LLM01 · LLM05 — intra + interproc + **cross-module** | Semantic Kernel, Azure OpenAI, OpenAI .NET |
 | **Ruby** | `orthosec[ruby]` | LLM01 · LLM05 — intra + interproc + **cross-module** | ruby-openai, langchainrb |
 | **PHP** | `orthosec[php]` | LLM01 · LLM05 — intra + interproc + **cross-module** | openai-php, LLPhant |
+| **Rust** | `orthosec[rust]` | LLM01 · LLM05 — intra + interproc + **cross-module** | async-openai, rig, ollama-rs, genai |
 
-Sinks recognized per language: model output into **shell/exec** (`os.system`, `exec.Command`, `Runtime.exec`, `Process.Start`, `system`), **raw SQL** (`cursor.execute`, `db.Query`, `executeQuery`, `FromSqlRaw`, `$pdo->query`, `whereRaw`), **eval**, and **HTML/XSS** (`innerHTML`, `dangerouslySetInnerHTML`, `Html.Raw`, `template.HTML`, `raw`/`echo`). Uncapped-completion (LLM10) is covered for Python, TypeScript/JS and Go.
+Sinks recognized per language: model output into **shell/exec** (`os.system`, `exec.Command`, `Runtime.exec`, `Process.Start`, `Command::new`, `system`), **raw SQL** (`cursor.execute`, `db.Query`, `executeQuery`, `FromSqlRaw`, `$pdo->query`, `sqlx::query`, `whereRaw`), **eval**, and **HTML/XSS** (`innerHTML`, `dangerouslySetInnerHTML`, `Html.Raw`, `template.HTML`, `Html(…)`, `raw`/`echo`). Uncapped-completion (LLM10) is covered for Python, TypeScript/JS and Go.
 
 Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@register`, done. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -336,7 +337,7 @@ You are scanning your own source code, so egress matters. OrthoSec is offline by
 
 Static analysis is honest about what it can and can't see:
 
-- **Language depth: Python leads by one detector.** All eight tree-sitter languages (TypeScript/JS, Go, Java, Kotlin, C#, Ruby, PHP) now have full intra + interprocedural + **cross-module** taint for **LLM01 and LLM05**. Tool-exposure dataflow (LLM06) and uncapped-completion (LLM10) across the JVM / C# / Ruby / PHP analyzers remain Python-first. Without a language's extra, its files fall back to the regex path.
+- **Language depth: Python leads by one detector.** All eight tree-sitter languages (TypeScript/JS, Go, Java, Kotlin, C#, Ruby, PHP, Rust) now have full intra + interprocedural + **cross-module** taint for **LLM01 and LLM05**. Tool-exposure dataflow (LLM06) and uncapped-completion (LLM10) across the JVM / C# / Ruby / PHP / Rust analyzers remain Python-first. Without a language's extra, its files fall back to the regex path.
 - **Run OrthoSec on a Python ≥ the target's syntax for full precision.** The Python detectors AST-parse target code; if the scanner runs on an *older* Python than the code it scans (e.g. 3.9 scanning a repo that uses 3.10+ `match`/syntax), that file can't be AST-parsed and falls back to the less-precise regex path (more findings to triage). Install OrthoSec on Python 3.11+ to scan modern codebases at full AST precision.
 - **Detectors reason about code, not runtime.** Tainted data reaching a sink through a database, queue, or network round-trip that OrthoSec can't follow may be missed.
 - **The intel layer explains, it never invents.** The business/compliance narrative is grounded in the deterministic findings; with `--no-exec` you lose the narrative, never a finding.
@@ -347,7 +348,8 @@ Found a false positive or a miss? That's the most valuable issue you can file �
 
 - **Shipped**
   - **Full OWASP LLM Top-10 (2025) coverage** — 11 detectors, benchmark-gated at 100% precision/recall (incl. AI-dependency supply-chain audit of `requirements.txt` / `package.json`).
-  - **Eight-language AST taint depth** — Python, TypeScript/JS, Go, Java, Kotlin, C#, Ruby, PHP all have intra-function + **interprocedural** + **cross-module** tracking for **LLM01 + LLM05** (Python adds LLM06/LLM10), framework-aware, tree-sitter-based (JS = esprima).
+  - **Nine-language AST taint depth** — Python, TypeScript/JS, Go, Java, Kotlin, C#, Ruby, PHP, Rust all have intra-function + **interprocedural** + **cross-module** tracking for **LLM01 + LLM05** (Python adds LLM06/LLM10), framework-aware, tree-sitter-based (JS = esprima).
+  - **Scan remote & private repos** — `orthosec scan <git-url | owner/repo>` clones and scans; private repos authenticate via ssh-agent, your git credential helper, or a token from stdin / env (never in argv or logs).
   - **Precision-hardened** — validated FP-free across 20 public AI repos (LibreChat, crewAI, langchain4j, BotSharp, instructor-php, …); real true-positives preserved.
   - **Delivery** — four audience profiles; provider-agnostic intel (Anthropic + Azure Foundry); self-contained HTML report + remediation agents; runtime guard (`@guard`, Python + Node) and inline `orthosec proxy`; scheduling; baseline + inline suppression; `--diff` PR scanning; SARIF with stable fingerprints; PR-native GitHub Action. On PyPI (`pip install orthosec`) and npm (`@orthosec/guard`).
 - **Next** — GitHub Marketplace listing; PDF report export; deeper per-language framework coverage; LLM06/LLM10 parity on the tree-sitter languages.
@@ -368,7 +370,7 @@ in order of how widely it's used to *build AI products*:
 | 4 | **Java + Kotlin** | Enterprise AI services, Android AI apps | ✅ LLM01 · LLM05, intra + interproc + cross-module (`orthosec[java]` / `[kotlin]`); Spring AI / LangChain4j |
 | 5 | **C# / .NET** | Enterprise AI, Semantic Kernel, Azure-native apps | ✅ LLM01 · LLM05, intra + interproc + cross-module (`orthosec[csharp]`); Semantic Kernel / Azure OpenAI / OpenAI .NET |
 | 6 | **Ruby + PHP** | AI features in Rails / Laravel product code | ✅ LLM01 · LLM05, intra + interproc + cross-module (`orthosec[ruby]` / `[php]`); ruby-openai / langchainrb / openai-php / LLPhant |
-| 7 | **Rust** | Inference engines, performance-critical AI infra | ⏳ Planned |
+| 7 | **Rust** | Inference engines, performance-critical AI infra | ✅ LLM01 · LLM05, intra + interproc + cross-module (`orthosec[rust]`); async-openai / rig / ollama-rs / genai |
 
 Every language maps to the **same OWASP LLM Top-10 taxonomy and detectors** — the report,
 severity model, compliance mapping, and remediation agents are language-agnostic, so

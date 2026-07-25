@@ -77,6 +77,28 @@ def _is_https(url: str) -> bool:
     return url.lower().startswith(("https://", "http://"))
 
 
+# Per-host default username for token auth (the token itself is the password):
+#   GitHub PAT  -> x-access-token   GitLab PAT -> oauth2   Bitbucket token -> x-token-auth
+_HOST_USERNAME = (("github", "x-access-token"),
+                  ("gitlab", "oauth2"),
+                  ("bitbucket", "x-token-auth"))
+
+
+def _host_of(url: str) -> str:
+    m = re.match(r"(?i)^git@([\w.-]+):", url) or re.match(r"(?i)^[a-z]+://(?:[^@/]*@)?([\w.-]+)", url)
+    return m.group(1).lower() if m else ""
+
+
+def default_username(url: str) -> str:
+    """Best default token username for the URL's host (GitHub / GitLab / Bitbucket),
+    falling back to `x-access-token`. Overridden by an explicit --git-username."""
+    host = _host_of(url)
+    for key, user in _HOST_USERNAME:
+        if key in host:
+            return user
+    return "x-access-token"
+
+
 @contextlib.contextmanager
 def _askpass_env(username: str, token: str):
     """Yield env overrides that feed git a username/token through GIT_ASKPASS.
@@ -123,7 +145,7 @@ def clone(target, *, branch=None, token=None, username=None, keep=False, log=Non
         cmd += ["--branch", branch]
     cmd += ["--", url, dest]
 
-    auth_cm = _askpass_env(username or "x-access-token", token) \
+    auth_cm = _askpass_env(username or default_username(url), token) \
         if (token and _is_https(url)) else contextlib.nullcontext({})
     if log:
         log(f"Cloning {redact(url)} …")
