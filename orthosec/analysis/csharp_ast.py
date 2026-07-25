@@ -333,3 +333,139 @@ def output_findings(src: str):
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
         iter_calls=_iter_calls, refs=_refs, line=_line)
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+_UNTRUSTED_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|\bprompt\b|\breq\b|request|"
+    r"\bbody\b|payload|\bmsg\b|userinput|usermessage)")
+# Request-object roots: a var read from one of these carries untrusted input
+# (ASP.NET Core HttpRequest / HttpContext / minimal-API handler context).
+_REQ_ROOT = {"request", "req", "httpcontext", "context", "ctx"}
+_SYS_PROMPT_NAME = re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+# Trust-boundary / hardening language that mitigates injection (skip the scope).
+_INJ_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escapehtml)")
+
+
+def _refs_request(node) -> bool:
+    """True if the value reads from a request-like object (request.Form[...], ctx.Request...)."""
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type == "identifier" and _text(n).lower() in _REQ_ROOT:
+            return True
+    return False
+
+
+def _untrusted_in_scope(fnscope):
+    """Names carrying untrusted input in a method: user-ish params, `[FromBody]` params,
+    and vars read from a request object, propagated through plain reference (sanitizers clear)."""
+    seed = {p for p in _formal_params(fnscope) if _UNTRUSTED_NAME.search(p)}
+    # A `[FromBody]`/`[FromForm]`/`[FromQuery]` parameter carries untrusted request input.
+    params = fnscope.child_by_field_name("parameters")
+    if params is not None:
+        for pd in params.children:
+            if pd.type != "parameter":
+                continue
+            low = _text(pd).lower()
+            if "frombody" in low or "fromform" in low or "fromquery" in low:
+                nm = pd.child_by_field_name("name")
+                if nm is not None:
+                    seed.add(_text(nm))
+    decls = _decls(fnscope)
+    for name, val in decls:
+        if _refs_request(val):
+            seed.add(name)
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if val.type == "invocation_expression" and _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def _is_system_message_construction(node, untrusted) -> bool:
+    """A system chat-message construction (Azure OpenAI / OpenAI .NET / Semantic Kernel)
+    whose content references untrusted input. Conservative — a User message never matches."""
+    if node.type == "object_creation_expression":
+        typ = node.child_by_field_name("type")
+        if typ is None:
+            return False
+        tn = _text(typ)
+        args = node.child_by_field_name("arguments")
+        # new SystemChatMessage(x) / new ChatRequestSystemMessage(x) / ...SystemMessage(x)
+        if ("SystemMessage" in tn or "SystemChatMessage" in tn
+                or "ChatRequestSystemMessage" in tn):
+            return _refs(args, untrusted)
+        # new ChatMessage(ChatRole.System, x) — needs an explicit System role argument.
+        if tn == "ChatMessage" and args is not None and "System" in _text(args):
+            return _refs(args, untrusted)
+        return False
+    if node.type == "invocation_expression":
+        chain = _callee_chain(node)
+        # ChatMessage.CreateSystemMessage(x)
+        if chain and chain[-1] == "CreateSystemMessage":
+            return _refs(node.child_by_field_name("arguments"), untrusted)
+    return False
+
+
+def injection_findings(src: str):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named assignment
+    or a system chat-message construction) with no trust boundary.
+    Returns list of (line, capability), or None to fall back to regex."""
+    root = _parse(src)
+    if root is None:
+        return None
+
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        untrusted = _untrusted_in_scope(scope)
+        if not untrusted:
+            continue
+        for n in _walk(scope):
+            if n.type == "variable_declarator":
+                name = n.child_by_field_name("name")
+                val = _decl_value(n)
+                # A system prompt is a string; a var initialized to a constructed object
+                # (`var instruction = new ConversationalVoiceResponse { ... }`) is a
+                # domain object that merely happens to be named "instruction", not a prompt.
+                if name is not None and val is not None \
+                        and val.type not in ("object_creation_expression",
+                                             "implicit_object_creation_expression") \
+                        and _SYS_PROMPT_NAME.search(_text(name)) and _refs(val, untrusted):
+                    add(_line(n))
+            elif n.type == "assignment_expression":
+                # Skip object-initializer members (`new Agent { Instruction = x }`): a
+                # property set on a constructed object is not a system-prompt variable.
+                if n.parent is not None and n.parent.type == "initializer_expression":
+                    continue
+                left = n.child_by_field_name("left")
+                if left is not None and left.type == "identifier" \
+                        and _SYS_PROMPT_NAME.search(_text(left)) \
+                        and _refs(n.child_by_field_name("right"), untrusted):
+                    add(_line(n))
+            elif n.type in ("object_creation_expression", "invocation_expression"):
+                if _is_system_message_construction(n, untrusted):
+                    add(_line(n))
+    return out

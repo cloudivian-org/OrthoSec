@@ -313,3 +313,139 @@ def output_findings(src: str):
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
         iter_calls=_iter_calls, refs=_refs, line=_line)
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+_UNTRUSTED_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|\bprompt\b|\breq\b|request|"
+    r"\bbody\b|payload|\bmsg\b|userinput|usermessage)")
+# Request-object roots: a var read from one of these carries untrusted input
+# (HttpServletRequest / Spring @RequestBody / server exchange / handler ctx).
+_REQ_ROOT = {"request", "req", "httpRequest", "exchange", "ctx"}
+# HttpServletRequest / exchange read accessors. Precision gate: `request.foo()` only
+# carries untrusted input when `foo` is an actual request-read accessor — otherwise a
+# framework domain object named `request` (ChatRequest.messages(), EmbeddingRequest.
+# getInstructions()) would be misread as HTTP input.
+_REQ_READ = {"getparameter", "getparametervalues", "getparametermap", "getheader",
+             "getheaders", "getinputstream", "getreader", "getquerystring", "getpart",
+             "getparts", "getcookies", "getrequesturi", "getrequesturl", "getpathinfo",
+             "getbody", "getquery", "getrequestbody", "getformparams", "getqueryparams"}
+# A system prompt is built from untrusted *text*; only string-typed params seed taint,
+# so a typed domain object (ChatMessage, ChatRequest, Prompt) named user-ishly is ignored.
+_STRING_TYPE = re.compile(r"(?i)(string|charsequence)")
+_SYS_PROMPT_NAME = re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+# Trust-boundary / hardening language that mitigates injection (skip the scope).
+_INJ_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escapehtml)")
+
+
+def _refs_request(node) -> bool:
+    """True if the value reads untrusted input from a request-like object, i.e. a call
+    `request.getParameter(...)` where the receiver root is in `_REQ_ROOT` and the accessor
+    is a real request-read (`_REQ_READ`) — not any incidental identifier named `request`."""
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type != "method_invocation":
+            continue
+        obj, nm = n.child_by_field_name("object"), n.child_by_field_name("name")
+        if obj is not None and obj.type == "identifier" and _text(obj) in _REQ_ROOT \
+                and nm is not None and _text(nm).lower() in _REQ_READ:
+            return True
+    return False
+
+
+def _string_param_names(fn) -> set:
+    """Formal-parameter names whose declared type is String / CharSequence-ish."""
+    p = fn.child_by_field_name("parameters")
+    out = set()
+    if p is not None:
+        for pd in p.children:
+            if pd.type == "formal_parameter":
+                nm, ty = pd.child_by_field_name("name"), pd.child_by_field_name("type")
+                if nm is not None and ty is not None and _STRING_TYPE.search(_text(ty)):
+                    out.add(_text(nm))
+    return out
+
+
+def _untrusted_in_scope(fnscope):
+    """Names carrying untrusted input in a method: user-ish *string* params + vars read
+    from a request object, propagated through plain reference (sanitizers clear)."""
+    strings = _string_param_names(fnscope)
+    seed = {p for p in _formal_params(fnscope) if _UNTRUSTED_NAME.search(p) and p in strings}
+    decls = _decls(fnscope)
+    for name, val in decls:
+        if _refs_request(val):
+            seed.add(name)
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if val.type == "method_invocation" and _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def _is_system_message_construction(node):
+    """The argument node of a LangChain4j SystemMessage construction, or None:
+    SystemMessage.from(x) / SystemMessage.systemMessage(x) / new SystemMessage(x)."""
+    if node.type == "method_invocation":
+        chain = _minv_chain(node)
+        if chain and chain[-1] in ("from", "systemMessage") and "SystemMessage" in chain[:-1]:
+            return node.child_by_field_name("arguments")
+    elif node.type == "object_creation_expression":
+        typ = node.child_by_field_name("type")
+        if typ is not None and _text(typ) == "SystemMessage":
+            return node.child_by_field_name("arguments")
+    return None
+
+
+def injection_findings(src: str):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named assignment
+    or a LangChain4j SystemMessage construction) with no trust boundary.
+    Returns list of (line, capability), or None to fall back to regex."""
+    root = _parse(src)
+    if root is None:
+        return None
+
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        untrusted = _untrusted_in_scope(scope)
+        if not untrusted:
+            continue
+        for n in _walk(scope):
+            if n.type == "variable_declarator":
+                name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+                if name is not None and _SYS_PROMPT_NAME.search(_text(name)) \
+                        and _refs(val, untrusted):
+                    add(_line(n))
+            elif n.type == "assignment_expression":
+                left = n.child_by_field_name("left")
+                if left is not None and left.type == "identifier" \
+                        and _SYS_PROMPT_NAME.search(_text(left)) \
+                        and _refs(n.child_by_field_name("right"), untrusted):
+                    add(_line(n))
+            elif n.type in ("method_invocation", "object_creation_expression"):
+                args = _is_system_message_construction(n)
+                if args is not None and _refs(args, untrusted):
+                    add(_line(n))
+    return out

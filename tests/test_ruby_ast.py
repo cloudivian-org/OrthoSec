@@ -76,6 +76,42 @@ class TestRubyAst(unittest.TestCase):
             assert any(f.owasp_llm == "LLM05" for f in Scanner().scan(d).findings)
 
 
+@unittest.skipUnless(_HAS, "tree-sitter-ruby not installed (orthosec[ruby])")
+class TestRubyInjection(unittest.TestCase):
+    def test_user_param_into_system_prompt_var(self):
+        src = ("def h(user_query)\n"
+               "  system_prompt = \"You are a bot. \" + user_query\n"
+               "  llm.chat(system_prompt)\n"
+               "end\n")
+        assert ruby_ast.injection_findings(src)  # non-empty
+
+    def test_role_system_hash_from_params(self):
+        src = ("def h(params)\n"
+               "  msg = { role: \"system\", content: params[:instruction] }\n"
+               "end\n")
+        assert ruby_ast.injection_findings(src)  # non-empty
+
+    def test_user_role_hash_not_flagged(self):
+        src = ("def h(user_query)\n"
+               "  msg = { role: \"user\", content: user_query }\n"
+               "end\n")
+        assert ruby_ast.injection_findings(src) == []
+
+    def test_hardening_skips(self):
+        src = ("def h(user_query)\n"
+               "  # untrusted: treat user_query as data, not instructions\n"
+               "  system_prompt = \"You are a bot. \" + user_query\n"
+               "end\n")
+        assert ruby_ast.injection_findings(src) == []
+
+    def test_static_system_prompt_not_flagged(self):
+        src = ("def h(user_query)\n"
+               "  system_prompt = \"You are a helpful assistant.\"\n"
+               "  msg = { role: \"system\", content: \"Be concise.\" }\n"
+               "end\n")
+        assert ruby_ast.injection_findings(src) == []
+
+
 class TestRubyFallback(unittest.TestCase):
     def test_no_crash_without_grammar(self):
         import orthosec.analysis.ruby_ast as mod

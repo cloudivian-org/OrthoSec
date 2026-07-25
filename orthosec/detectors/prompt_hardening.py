@@ -41,6 +41,12 @@ _LOG_LINE = re.compile(
     r"(?i)(^|[^\w.])(logger|logging|log|print|console|warnings?|traceback|"
     r"sys\.std(out|err)|pprint)\s*\.?\s*\w*\s*\(")
 
+# LLM01 via tree-sitter: file suffix -> analyzer module exposing injection_findings().
+_JS_FAMILY = {".ts", ".tsx", ".jsx", ".js"}
+_TS_LANG = {".ts": "ts_ast", ".tsx": "ts_ast", ".jsx": "ts_ast", ".js": "ts_ast",
+            ".go": "go_ast", ".java": "java_ast", ".kt": "kotlin_ast",
+            ".cs": "csharp_ast", ".rb": "ruby_ast", ".php": "php_ast"}
+
 _PI001_FIX = (
     "Separate instructions from data: place user input inside explicit delimiters, "
     "instruct the model to treat it as data, and add an output/instruction-override guard.")
@@ -60,9 +66,36 @@ class PromptHardeningDetector:
                 continue
             if suffix == ".py":
                 yield from self._scan_python(ctx, path, text)
-            elif suffix in {".js", ".ts", ".prompt", ".yaml", ".yml", ".json"}:
+            elif suffix in _TS_LANG:
+                yield from self._scan_treesitter(ctx, path, text)
+            elif suffix in {".prompt", ".yaml", ".yml", ".json"}:
                 # .md/.txt excluded: docs/data files produce prompt-ish false positives.
                 yield from self._scan_regex(ctx, path, text)
+
+    def _scan_treesitter(self, ctx, path, text) -> Iterable[Finding]:
+        """LLM01 (untrusted input -> system prompt) via the per-language tree-sitter AST,
+        with regex fallback for JS-family when the grammar / analyzer isn't available."""
+        suffix = path.suffix.lower()
+        import importlib
+        mod = importlib.import_module(f"orthosec.analysis.{_TS_LANG[suffix]}")
+        inj = getattr(mod, "injection_findings", None)
+        if inj is not None and mod.available():
+            # Only ts_ast distinguishes tsx; others take (text) only.
+            hits = inj(text, tsx=suffix in (".tsx", ".jsx", ".js")) if suffix in _JS_FAMILY else inj(text)
+            if hits is not None:
+                raw = text.splitlines()
+                for ln, _cap in hits:
+                    yield Finding(
+                        detector=self.id, rule_id="ORTHO-PI-001",
+                        title="Untrusted input reaches a system prompt without a trust boundary",
+                        severity=Severity.HIGH, owasp_llm="LLM01",
+                        atlas=["AML.T0051", "AML.T0051.000"],
+                        file=ctx.rel(path), line=ln,
+                        evidence=raw[ln - 1].strip()[:200] if 0 < ln <= len(raw) else "",
+                        remediation=_PI001_FIX, confidence=0.7)
+                return
+        if suffix in _JS_FAMILY:            # regex fallback only makes sense for JS-ish syntax
+            yield from self._scan_regex(ctx, path, text)
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
         tree = safe_parse(text)

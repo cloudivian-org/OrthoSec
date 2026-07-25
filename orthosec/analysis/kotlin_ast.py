@@ -343,3 +343,82 @@ def output_findings(src: str):
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
         iter_calls=_iter_calls, refs=_refs, line=_line)
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+import re as _re
+_UNTRUSTED_NAME = _re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|\bprompt\b|\breq\b|request|"
+    r"\bbody\b|payload|\bmsg\b|userinput|usermessage)")
+_REQ_ROOT = {"req", "request", "ctx", "context", "call", "params"}
+_SYS_PROMPT_NAME = _re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+_INJ_HARDENING = _re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escapehtml)")
+
+
+def _refs_request(node) -> bool:
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type in _ID_TYPES and _text(n) in _REQ_ROOT:
+            return True
+    return False
+
+
+def _untrusted_in_scope(fnscope):
+    seed = {p for p in _formal_params(fnscope) if _UNTRUSTED_NAME.search(p)}
+    decls = _decls(fnscope)
+    for name, val in decls:
+        if _refs_request(val):
+            seed.add(name)
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def injection_findings(src: str):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named assignment,
+    or a `SystemMessage(untrusted)` construction) with no trust boundary."""
+    root = _parse(src)
+    if root is None:
+        return None
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        untrusted = _untrusted_in_scope(scope)
+        if not untrusted:
+            continue
+        # (a) system-prompt-named val/var assignment referencing untrusted
+        for name, val in _decls(scope):
+            if _SYS_PROMPT_NAME.search(name) and _refs(val, untrusted):
+                add(_line(val) if val is not None else 0)
+        # (b) SystemMessage(untrusted) / SystemMessage.from(untrusted)
+        for n in _walk(scope):
+            if n.type != "call_expression":
+                continue
+            chain = [c.lower() for c in _call_chain(n)]
+            if "systemmessage" in chain and _refs(_call_args(n), untrusted):
+                add(_line(n))
+    return out

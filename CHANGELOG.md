@@ -4,6 +4,30 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-07-25
+
+### Added
+- **LLM01 (prompt injection) for all eight tree-sitter languages** — untrusted input
+  reaching a **system prompt** is now caught in TypeScript/JS, Go, Java, Kotlin, C#,
+  Ruby, and PHP (the Python engine already did this). Untrusted = user-ish function
+  params or real request reads (`req.body`, `params[:x]`, `$_POST`, `request.getParameter`,
+  `$request->input()`); sink = a `systemPrompt`-named assignment or a `role:"system"`
+  message (JS object / Go `ChatCompletionMessage{Role: ...System}` / Ruby hash / PHP
+  array / Java-Kotlin `SystemMessage(...)` / C# `SystemChatMessage(...)`) whose content
+  references the untrusted value. Wired through a generic per-suffix dispatch in the
+  prompt-hardening detector.
+- **Precision is enforced, not assumed.** User input in a *user* message does not fire
+  (that's normal); trust-boundary language ("treat as data, not instructions") suppresses
+  the scope. Validated on 10 real repos (ai-chatbot, langchaingo, langchain4j, spring-ai,
+  semantic-kernel, BotSharp, discourse-ai, langchainrb, instructor-php, LLPhant), which
+  drove several precision fixes so the frameworks stay clean: typed-DTO params named
+  `request`/`message`/`ChatMessage` are not treated as untrusted text (they're not raw
+  user input), a bare `$request->messages()` DTO call is not a request read, and C#/Java
+  object-initializer / constructed-domain-object shapes don't trip the system-prompt-name
+  heuristic. Real prompt-injection true positives are surfaced — e.g. instructor-php's
+  thought-generation examples embed a user `{$query}` into a `role:'system'` message.
+  Benchmark 100% / 0 FP, adversarial 14/14, 248 tests.
+
 ## [0.8.2] — 2026-07-24
 
 ### Added

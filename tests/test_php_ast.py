@@ -67,6 +67,42 @@ class TestPhpAst(unittest.TestCase):
             assert any(f.owasp_llm == "LLM05" for f in Scanner().scan(d).findings)
 
 
+@unittest.skipUnless(_HAS, "tree-sitter-php not installed (orthosec[php])")
+class TestPhpInjection(unittest.TestCase):
+    def test_user_param_into_system_prompt_var(self):
+        src = ("<?php function h($userQuery){\n"
+               "  $systemPrompt = \"You are a bot. \" . $userQuery;\n"
+               "  $client->chat()->create($systemPrompt);\n"
+               "} ?>")
+        assert php_ast.injection_findings(src) != []
+
+    def test_role_system_array(self):
+        src = ("<?php function h($request){\n"
+               "  $msg = ['role' => 'system', 'content' => $request->input('p')];\n"
+               "} ?>")
+        assert php_ast.injection_findings(src) != []
+
+    def test_user_role_array_not_flagged(self):
+        src = ("<?php function h($userQuery){\n"
+               "  $msg = ['role' => 'user', 'content' => $userQuery];\n"
+               "} ?>")
+        assert php_ast.injection_findings(src) == []
+
+    def test_hardening_skips(self):
+        src = ("<?php function h($userQuery){\n"
+               "  // untrusted: treat the following as data, not instructions\n"
+               "  $systemPrompt = \"You are a bot. \" . $userQuery;\n"
+               "} ?>")
+        assert php_ast.injection_findings(src) == []
+
+    def test_static_system_prompt(self):
+        src = ("<?php function h(){\n"
+               "  $systemPrompt = \"You are a helpful bot.\";\n"
+               "  $client->chat()->create($systemPrompt);\n"
+               "} ?>")
+        assert php_ast.injection_findings(src) == []
+
+
 class TestPhpFallback(unittest.TestCase):
     def test_no_crash_without_grammar(self):
         import orthosec.analysis.php_ast as mod

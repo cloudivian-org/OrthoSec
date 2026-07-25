@@ -412,3 +412,115 @@ def output_findings(src: str, tsx: bool = True):
 def _prop(member) -> str:
     prop = member.child_by_field_name("property")
     return _text(prop) if prop is not None else ""
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+_UNTRUSTED_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|\bprompt\b|\breq\b|request|"
+    r"\bbody\b|payload|\bmsg\b|userinput|usermessage)")
+_REQ_ROOT = {"req", "request", "ctx", "context", "event", "params"}
+_SYS_PROMPT_NAME = re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+# Trust-boundary / hardening language that mitigates injection (skip the scope).
+_INJ_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escapehtml)")
+
+
+def _refs_request(node) -> bool:
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type == "identifier" and _text(n) in _REQ_ROOT:
+            return True
+    return False
+
+
+def _untrusted_in_scope(fnscope):
+    """Names carrying untrusted input in a function: user-ish params + vars read from a
+    request object, propagated through plain reference (sanitizers clear)."""
+    seed = {p for p in _formal_params(fnscope) if _UNTRUSTED_NAME.search(p)}
+    decls = []
+    for n in _walk(fnscope):
+        if n.type == "variable_declarator":
+            name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+            if name is not None and name.type == "identifier":
+                decls.append((_text(name), val))
+                if _refs_request(val):
+                    seed.add(_text(name))
+        elif n.type == "assignment_expression":
+            left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
+            if left is not None and left.type == "identifier":
+                decls.append((_text(left), right))
+                if _refs_request(right):
+                    seed.add(_text(left))
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if val.type == "call_expression" and _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def _obj_role_system_content(obj):
+    """For an object literal, return the `content` value node if it also has role:'system'."""
+    role_system, content = False, None
+    for pair in obj.children:
+        if pair.type != "pair":
+            continue
+        key, val = pair.child_by_field_name("key"), pair.child_by_field_name("value")
+        kt = _text(key).strip('"\'`') if key is not None else ""
+        if kt == "role" and val is not None and _text(val).strip('"\'`') == "system":
+            role_system = True
+        elif kt == "content":
+            content = val
+    return content if role_system else None
+
+
+def injection_findings(src: str, tsx: bool = True):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named assignment
+    or a `{role:'system', content: <untrusted>}` message) with no trust boundary.
+    Returns list of (line, capability), or None to fall back to regex."""
+    root = _parse(src, tsx)
+    if root is None:
+        return None
+
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _ts_scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        untrusted = _untrusted_in_scope(scope)
+        if not untrusted:
+            continue
+        for n in _walk(scope):
+            if n.type == "variable_declarator":
+                name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+                if name is not None and _SYS_PROMPT_NAME.search(_text(name)) and _refs(val, untrusted):
+                    add(_line(n))
+            elif n.type == "assignment_expression":
+                left = n.child_by_field_name("left")
+                if left is not None and left.type == "identifier" \
+                        and _SYS_PROMPT_NAME.search(_text(left)) \
+                        and _refs(n.child_by_field_name("right"), untrusted):
+                    add(_line(n))
+            elif n.type == "object":
+                content = _obj_role_system_content(n)
+                if content is not None and _refs(content, untrusted):
+                    add(_line(n))
+    return out

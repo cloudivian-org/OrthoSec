@@ -312,3 +312,129 @@ def output_findings(src: str):
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
         iter_calls=_iter_calls, refs=_refs, line=_line)
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+# NB: bare `message`/`msg` are intentionally NOT here (unlike the TS engine): in the Ruby
+# LLM ecosystem `message`/`msg` name the *prompt message struct* the app assembles, not raw
+# end-user input, so they explode across ruby-openai/langchainrb provider dialects. End-user
+# intent still matches via `user`/`usermessage`/`query`/`prompt`/`request`/`params`.
+_UNTRUSTED_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bprompt\b|\breq\b|request|"
+    r"\bbody\b|payload|userinput|usermessage)")
+# Rails / request-object roots: `params[:x]`, `request.body`, `req.params`.
+_REQ_ROOT = {"params", "request", "req"}
+_SYS_PROMPT_NAME = re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+# Trust-boundary / hardening language that mitigates injection (skip the method).
+_INJ_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escape_html)")
+
+
+def _refs_request(node) -> bool:
+    """True if any identifier in the subtree is a request root (Rails `params[:x]` etc.)."""
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type == "identifier" and _text(n) in _REQ_ROOT:
+            return True
+    return False
+
+
+def _untrusted_in_scope(fnscope, request_only=False):
+    """Names carrying untrusted input in a method: user-ish params + vars read from a
+    request object (`params`/`request`/`req`), propagated through plain reference
+    (sanitizer values clear taint).
+
+    `request_only=True` narrows the seed to request-derived taint alone (Rails
+    `params[:x]` etc.) — used for the message-hash sink, which stays conservative so
+    provider-dialect helpers that assemble a static system message don't fire."""
+    seed = {p for p in _formal_params(fnscope) if p in _REQ_ROOT}
+    if not request_only:
+        seed |= {p for p in _formal_params(fnscope) if _UNTRUSTED_NAME.search(p)}
+    decls = _decls(fnscope)
+    for name, val in decls:
+        if _refs_request(val):
+            seed.add(name)
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def _hash_system_content(hashnode):
+    """For a Ruby hash literal, return the `content` value node iff it also carries
+    `role: "system"` (a ruby-openai message hash). Handles symbol keys (`role:` /
+    `:role =>`) and string keys (`"role" =>`)."""
+    role_system, content = False, None
+    for pair in hashnode.children:
+        if pair.type != "pair":
+            continue
+        key = pair.child_by_field_name("key")
+        val = pair.child_by_field_name("value")
+        if key is None and pair.children:
+            key = pair.children[0]
+        if val is None and pair.children:
+            val = pair.children[-1]
+        kt = _text(key).strip("\"'`:") if key is not None else ""
+        if kt == "role":
+            if val is not None and _text(val).strip("\"'`:") == "system":
+                role_system = True
+        elif kt == "content":
+            content = val
+    return content if role_system else None
+
+
+def injection_findings(src: str):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named assignment
+    or a `{ role: "system", content: <untrusted> }` message hash) with no trust boundary.
+    Returns list of (line, capability), or None to fall back to regex."""
+    root = _parse(src)
+    if root is None:
+        return None
+
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        # The system-prompt-variable sink is the reliable core and keeps name-based
+        # (user-ish) taint. The message-hash sink stays conservative: only request-derived
+        # taint, so the many provider-dialect helpers that build a `{ role: "system", ... }`
+        # from an internal prompt struct don't fire.
+        untrusted = _untrusted_in_scope(scope)
+        req_untrusted = _untrusted_in_scope(scope, request_only=True)
+        for n in _walk(scope):
+            if n.type == "assignment":
+                left = n.child_by_field_name("left")
+                if left is not None and left.type == "identifier" \
+                        and _SYS_PROMPT_NAME.search(_text(left)) \
+                        and _refs(n.child_by_field_name("right"), untrusted):
+                    add(_line(n))
+            elif n.type == "hash":
+                content = _hash_system_content(n)
+                # Fire when content is request-derived: either an inline request read
+                # (`params[:x]`, the common Rails-controller case where `params` is an
+                # implicit method, not a local) or a var carrying request-derived taint.
+                if content is not None \
+                        and (_refs_request(content) or _refs(content, req_untrusted)):
+                    add(_line(n))
+    return out

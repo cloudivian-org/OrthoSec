@@ -323,3 +323,143 @@ def output_findings(src: str):
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
         iter_calls=_iter_calls, refs=_refs, line=_line)
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+# User-ish param names. NB: `request`/`message`/`msg`/`body` are excluded — in the PHP
+# LLM SDKs those name typed DTOs (InferenceRequest, Message, ...), not raw user text.
+_UNTRUSTED_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bprompt\b|payload|userinput|usermessage)")
+# PHP request superglobals, and request-accessor methods on a $request/$req object — a
+# real read of HTTP input, not merely a variable named `request` (which is often a DTO).
+_SUPERGLOBAL = {"_get", "_post", "_request", "_cookie", "_server", "_files"}
+_REQ_READ = {"input", "query", "get", "post", "all", "cookie", "header", "headers",
+             "json", "getparsedbody", "getqueryparams", "getparam", "query_params"}
+_SYS_PROMPT_NAME = re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+# Trust-boundary / hardening language that mitigates injection (skip the scope).
+_INJ_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escapehtml)")
+
+
+def _refs_request(node) -> bool:
+    """True if `node` reads HTTP input: a superglobal ($_GET/$_POST/...), or a
+    request-accessor call like $request->input(...) / $req->query(...). A bare
+    `$request->messages()` (a DTO method) is NOT a request read."""
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type == "variable_name" and _var_name(n).lower() in _SUPERGLOBAL:
+            return True
+        if n.type in ("member_call_expression", "nullsafe_member_call_expression"):
+            obj = n.child_by_field_name("object")
+            if obj is not None and obj.type == "variable_name" \
+                    and _var_name(obj).lower() in ("request", "req") \
+                    and _call_method(n).lower() in _REQ_READ:
+                return True
+    return False
+
+
+def _untrusted_in_scope(fnscope):
+    """Names carrying untrusted input: user-ish params + vars read from a request/
+    superglobal, propagated through plain reference (sanitizers clear)."""
+    seed = {p for p in _formal_params(fnscope) if _UNTRUSTED_NAME.search(p)}
+    decls = _decls(fnscope)
+    for name, val in decls:
+        if _refs_request(val):
+            seed.add(name)
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def _str_lit(node):
+    """Inner text of a PHP `string` / `encapsed_string` literal (quotes stripped), else None."""
+    if node is None or node.type not in ("string", "encapsed_string"):
+        return None
+    for c in node.children:
+        if c.type == "string_content":
+            return _text(c)
+    return _text(node).strip("'\"")
+
+
+def _array_elem_kv(elem):
+    """(key_node, value_node) for an `array_element_initializer`. key is None when the
+    element has no `=>`."""
+    key, val, seen_arrow = None, None, False
+    parts = [c for c in elem.children if c.type != ","]
+    for i, c in enumerate(parts):
+        if c.type == "=>":
+            seen_arrow = True
+            key = parts[i - 1] if i > 0 else None
+            val = parts[i + 1] if i + 1 < len(parts) else None
+            break
+    if not seen_arrow:
+        non_tok = [c for c in parts if c.type not in ("=>",)]
+        val = non_tok[0] if non_tok else None
+    return key, val
+
+
+def _sys_content_from_array(arr):
+    """For an `array_creation_expression`, return the `content` value node iff the array
+    also declares `'role' => 'system'` (an openai-php system message). Else None."""
+    role_system, content = False, None
+    for elem in arr.children:
+        if elem.type != "array_element_initializer":
+            continue
+        key, val = _array_elem_kv(elem)
+        kt = _str_lit(key)
+        if kt == "role" and _str_lit(val) == "system":
+            role_system = True
+        elif kt == "content":
+            content = val
+    return content if role_system else None
+
+
+def injection_findings(src: str):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named `$var`
+    assignment or a `['role' => 'system', 'content' => <untrusted>]` message) with no
+    trust boundary. Returns list of (line, capability), or None to fall back to regex."""
+    root = _parse(src)
+    if root is None:
+        return None
+
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        untrusted = _untrusted_in_scope(scope)
+        if not untrusted:
+            continue
+        for n in _walk(scope):
+            if n.type == "assignment_expression":
+                left = n.child_by_field_name("left")
+                if left is not None and left.type == "variable_name" \
+                        and _SYS_PROMPT_NAME.search(_var_name(left)) \
+                        and _refs(n.child_by_field_name("right"), untrusted):
+                    add(_line(n))
+            elif n.type == "array_creation_expression":
+                content = _sys_content_from_array(n)
+                if content is not None and (_refs(content, untrusted) or _refs_request(content)):
+                    add(_line(n))
+    return out

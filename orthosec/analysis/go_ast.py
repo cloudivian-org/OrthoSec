@@ -357,3 +357,123 @@ def output_findings(src: str):
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
         iter_calls=_iter_calls, refs=_refs, line=_line)
+
+
+# ---- LLM01: untrusted input -> system prompt --------------------------------
+
+_UNTRUSTED_NAME = re.compile(
+    r"(?i)(\buser|\binput\b|query|question|\bmessage\b|\bprompt\b|\breq\b|request|"
+    r"\bbody\b|payload|\bmsg\b|userinput|usermessage)")
+# Go http handler request params: `r *http.Request`, `req`, `request`. Deliberately NOT
+# `ctx`/`c`/`g`: `ctx` is context.Context (threaded everywhere, not untrusted) and `c`/`g`
+# are ubiquitous local-var names — including them floods real repos with false positives.
+_REQ_ROOT = {"r", "req", "request"}
+_SYS_PROMPT_NAME = re.compile(
+    r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
+    r"systeminstruction|instruction)")
+# Trust-boundary / hardening language that mitigates injection (skip the scope).
+_INJ_HARDENING = re.compile(
+    r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
+    r"treat .* as data|never reveal|as data,? not|do not obey|sanitiz|escapehtml)")
+
+
+def _refs_request(node) -> bool:
+    """True if any identifier in `node` is a request root (a value read off the request)."""
+    if node is None:
+        return False
+    for n in _walk(node):
+        if n.type == "identifier" and _text(n) in _REQ_ROOT:
+            return True
+    return False
+
+
+def _untrusted_in_scope(fnscope):
+    """Names carrying untrusted input in a function: user-ish params, request-typed params
+    (`r *http.Request`), and vars read from a request object, propagated through plain
+    reference (sanitizers clear)."""
+    params = _formal_params(fnscope)
+    seed = {p for p in params if _UNTRUSTED_NAME.search(p) or p in _REQ_ROOT}
+    decls = _decls(fnscope)
+    for name, val in decls:
+        if _refs_request(val):
+            seed.add(name)
+    tainted = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for name, val in decls:
+            if name in tainted or val is None:
+                continue
+            if val.type == "call_expression" and _is_sanitizer_call(val):
+                continue
+            if _refs(val, tainted):
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
+def _lit_role_system_content(lit):
+    """For a Go composite_literal, return the Content/Text value node if it also carries a
+    `Role` keyed element whose value mentions "system" (matches "system" and ...RoleSystem)."""
+    body = lit.child_by_field_name("body")
+    if body is None:
+        for c in lit.children:
+            if c.type == "literal_value":
+                body = c
+                break
+    if body is None:
+        return None
+    role_system, content = False, None
+    for kel in body.children:
+        if kel.type != "keyed_element":
+            continue
+        key = kel.child_by_field_name("key") or (kel.children[0] if kel.children else None)
+        val = kel.child_by_field_name("value") or (kel.children[-1] if kel.children else None)
+        if key is None or val is None:
+            continue
+        kt = _text(key).strip().lower()
+        if kt == "role" and "system" in _text(val).lower():
+            role_system = True
+        elif kt in ("content", "text"):
+            content = val
+    return content if role_system else None
+
+
+def injection_findings(src: str):
+    """LLM01 — untrusted input reaching a system prompt (a system-prompt-named assignment or a
+    `SomeMessage{Role: ...System..., Content: <untrusted>}` composite literal) with no trust
+    boundary. Returns list of (line, capability), or None to fall back to regex."""
+    root = _parse(src)
+    if root is None:
+        return None
+
+    out, seen = [], set()
+
+    def add(line):
+        cap = "untrusted input in system prompt (no trust boundary)"
+        if (line, cap) not in seen:
+            seen.add((line, cap))
+            out.append((line, cap))
+
+    for scope in _scopes(root):
+        if _INJ_HARDENING.search(_text(scope)):
+            continue
+        untrusted = _untrusted_in_scope(scope)
+        if not untrusted:
+            continue
+        for n in _walk(scope):
+            if n.type in ("short_var_declaration", "assignment_statement"):
+                L, R = n.child_by_field_name("left"), n.child_by_field_name("right")
+                if L is None or R is None:
+                    continue
+                lefts = [c for c in L.children if c.type == "identifier"]
+                rights = [c for c in R.children if c.type != ","]
+                if not any(_SYS_PROMPT_NAME.search(_text(l)) for l in lefts):
+                    continue
+                if any(_refs(r, untrusted) for r in rights):
+                    add(_line(n))
+            elif n.type == "composite_literal":
+                content = _lit_role_system_content(n)
+                if content is not None and _refs(content, untrusted):
+                    add(_line(n))
+    return out
