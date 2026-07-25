@@ -4,6 +4,27 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-07-25
+
+### Added
+- **Cross-module (cross-file) taint for all eight tree-sitter languages** — the last
+  Python-parity depth gap. Model output tainted in file A, passed to a helper **defined
+  in file B** that sinks the parameter, is now flagged (TypeScript/JS, Go, Java, Kotlin,
+  C#, Ruby, PHP). A shared, per-language project index (`orthosec/analysis/_crossmod.py`)
+  is built once per scan (memoized on the scan context) and fed to the interprocedural
+  engine as extra function summaries.
+- **Unambiguous-only resolution** keeps it false-positive-safe: a function name defined
+  in exactly one file resolves across files; a name defined in several files is left
+  unresolved rather than linked to the wrong one (the rule the Python engine already
+  uses). Method calls (`Helper.run(x)` in Java/Kotlin/C#) resolve by method name under
+  the same guard.
+- **Milestone — full depth parity across 8 languages.** OrthoSec's tree-sitter analyzers
+  now match the Python engine's dataflow depth: **intra-function + interprocedural +
+  cross-module** taint for LLM05, plus **LLM01** (untrusted-input→prompt), across Python,
+  TypeScript/JS, Go, Java, Kotlin, C#, Ruby, and PHP. Validated on 10 real repos with
+  **0 new false positives** (perf: langchaingo 4.5s, semantic-kernel 32s); benchmark
+  100% / 0 FP, adversarial 14/14, 256 tests.
+
 ## [0.8.3] — 2026-07-25
 
 ### Added

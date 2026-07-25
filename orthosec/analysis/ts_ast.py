@@ -67,7 +67,7 @@ def _parser(tsx: bool):
     return parser
 
 
-def _parse(src: str, tsx: bool):
+def _parse(src: str, tsx: bool = True):
     parser = _parser(tsx)
     if parser is None:
         return None
@@ -357,17 +357,18 @@ def _dangerous_params(fn, returns_out):
     return params, dangerous
 
 
-def output_findings(src: str, tsx: bool = True):
+def output_findings(src: str, tsx: bool = True, project=None):
     """Model output flowing into a dangerous sink, including across local function calls
-    (interprocedural, intra-file). Returns list of (line, capability), or None to fall back."""
+    (interprocedural) and, when `project` (returns_out, summaries) is supplied, across
+    files (cross-module). Returns list of (line, capability), or None to fall back."""
     root = _parse(src, tsx)
     if root is None:
         return None
 
+    p_returns, p_summaries = project if project else (frozenset(), {})
     funcs = _functions(root)
-    # Which local functions return model output (fixpoint: a helper returning another
-    # output-helper's result counts too).
-    returns_out = set()
+    # Which functions return model output — local, seeded with cross-module (other files).
+    returns_out = set(p_returns)
     changed = True
     while changed:
         changed = False
@@ -375,9 +376,12 @@ def output_findings(src: str, tsx: bool = True):
             if name not in returns_out and _returns_output(fn, returns_out):
                 returns_out.add(name)
                 changed = True
-    # Which local functions sink a parameter.
-    summaries = {name: _dangerous_params(fn, returns_out) for name, fn in funcs.items()}
-    summaries = {k: v for k, v in summaries.items() if v[1]}
+    # Which functions sink a parameter — cross-module first, local definitions override.
+    summaries = dict(p_summaries)
+    for name, fn in funcs.items():
+        dp = _dangerous_params(fn, returns_out)
+        if dp[1]:
+            summaries[name] = dp
 
     out, seen = [], set()
 

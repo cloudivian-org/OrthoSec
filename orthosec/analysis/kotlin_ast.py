@@ -317,15 +317,17 @@ def _dangerous_params(fn, returns_out):
 
 
 def _iter_calls(scope):
+    # method NAME (last segment) for every call: bare `foo(...)` or `Helper.run(...)` —
+    # cross-module resolves the name (unambiguous-only).
     for n in _walk(scope):
         if n.type != "call_expression":
             continue
         chain = _call_chain(n)
-        if len(chain) != 1:                             # bare local call foo(...)
+        if not chain:
             continue
         args = _call_args(n)
         arg_nodes = [a for a in (args.children if args else []) if a.type not in ("(", ")", ",")]
-        yield n, chain[0], arg_nodes
+        yield n, chain[-1], arg_nodes
 
 
 def unbounded_findings(src: str):
@@ -333,16 +335,18 @@ def unbounded_findings(src: str):
     return None
 
 
-def output_findings(src: str):
+def output_findings(src: str, project=None):
     root = _parse(src)
     if root is None:
         return None
+    p_returns, p_summaries = project if project else ((), None)
     from orthosec.analysis._interproc import interprocedural
     return interprocedural(
         functions=_functions(root), scopes=_scopes(root),
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
-        iter_calls=_iter_calls, refs=_refs, line=_line)
+        iter_calls=_iter_calls, refs=_refs, line=_line,
+        extra_returns_out=p_returns, extra_summaries=p_summaries)
 
 
 # ---- LLM01: untrusted input -> system prompt --------------------------------

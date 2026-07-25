@@ -10,10 +10,13 @@ from __future__ import annotations
 
 
 def interprocedural(*, functions, scopes, taint_in_scope, find_sinks,
-                    returns_output, dangerous_params, iter_calls, refs, line):
-    # 1. Fixpoint: which local functions return model output (a helper returning
-    #    another output-helper's result counts, hence the loop).
-    returns_out = set()
+                    returns_output, dangerous_params, iter_calls, refs, line,
+                    extra_returns_out=(), extra_summaries=None):
+    # `extra_returns_out` / `extra_summaries` carry CROSS-MODULE knowledge: function
+    # names defined in OTHER files of the same project (unambiguous only) that return
+    # model output / sink a parameter. Local definitions take precedence.
+    # 1. Fixpoint: which functions return model output — local, seeded with cross-module.
+    returns_out = set(extra_returns_out)
     changed = True
     while changed:
         changed = False
@@ -22,8 +25,8 @@ def interprocedural(*, functions, scopes, taint_in_scope, find_sinks,
                 returns_out.add(name)
                 changed = True
 
-    # 2. Which local functions sink one of their parameters.
-    summaries = {}
+    # 2. Which functions sink one of their parameters — cross-module first, local overrides.
+    summaries = dict(extra_summaries or {})
     for name, fn in functions.items():
         params, dangerous = dangerous_params(fn, returns_out)
         if dangerous:

@@ -302,16 +302,18 @@ def _iter_calls(scope):
         yield n, _method_name(n), args
 
 
-def output_findings(src: str):
+def output_findings(src: str, project=None):
     root = _parse(src)
     if root is None:
         return None
+    p_returns, p_summaries = project if project else ((), None)
     from orthosec.analysis._interproc import interprocedural
     return interprocedural(
         functions=_functions(root), scopes=_scopes(root),
         taint_in_scope=_taint_in_scope, find_sinks=_find_sinks,
         returns_output=_returns_output, dangerous_params=_dangerous_params,
-        iter_calls=_iter_calls, refs=_refs, line=_line)
+        iter_calls=_iter_calls, refs=_refs, line=_line,
+        extra_returns_out=p_returns, extra_summaries=p_summaries)
 
 
 # ---- LLM01: untrusted input -> system prompt --------------------------------

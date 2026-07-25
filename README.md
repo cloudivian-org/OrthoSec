@@ -293,7 +293,8 @@ Found a false positive or a miss? That's the most valuable issue you can file �
 ## Roadmap
 
 - **Shipped** — static scanner; four audience profiles; provider-agnostic intel (Anthropic + Azure Foundry); self-contained HTML report with remediation agents; runtime guard (`@guard`, Python + Node) and inline `orthosec proxy`; scheduling. **Full OWASP LLM Top-10 coverage** (11 detectors incl. AI-dependency supply-chain audit of `requirements.txt`/`package.json`) with **framework-aware** Python AST taint tracking (intra-, inter-, and cross-module) for LLM01/05/06; **TypeScript/JSX AST** (`orthosec[ts]`), **Go AST** (`orthosec[go]`) for LLM05/LLM10, **Java + Kotlin AST** (`orthosec[java]` / `orthosec[kotlin]`), **C# AST** (`orthosec[csharp]`), and **Ruby + PHP AST** (`orthosec[ruby]` / `orthosec[php]`, tree-sitter) for LLM05 — all seven of the roadmap's top AI-product languages; baseline + inline suppression; `--diff` PR scanning; SARIF with stable fingerprints; PR-native GitHub Action. Published to PyPI (`pip install orthosec`) and npm (`@orthosec/guard`).
-- **Next** — interprocedural taint AND LLM01 (untrusted-input→prompt) now span all eight languages; the remaining Python-parity gap is **cross-module** taint (per-language import resolution) for the tree-sitter languages; GitHub Marketplace listing; PDF export from the HTML report.
+- **Full depth parity across 8 languages** — Python, TypeScript/JS, Go, Java, Kotlin, C#, Ruby, and PHP now all have intra-function + **interprocedural** + **cross-module** taint (LLM05) plus **LLM01** (untrusted-input→prompt), matching the Python engine's dataflow depth.
+- **Next** — GitHub Marketplace listing; PDF report export; managed dashboard; deeper per-language framework coverage.
 - **Later** — managed dashboard; more compliance packs; org-wide baselines.
 
 ### Language coverage roadmap

@@ -40,6 +40,48 @@ _SINKS = {
 }
 _SANITIZED = re.compile(r"(?i)(sanitiz|escape|bleach|validate|allowlist|whitelist|JSON\.parse)")
 
+# suffix -> (analyzer module, the file suffixes that share a project for cross-module).
+_TREESITTER = {
+    ".go": ("go_ast", (".go",)),
+    ".java": ("java_ast", (".java",)),
+    ".kt": ("kotlin_ast", (".kt",)),
+    ".cs": ("csharp_ast", (".cs",)),
+    ".rb": ("ruby_ast", (".rb",)),
+    ".php": ("php_ast", (".php",)),
+}
+_TS_FAMILY = (".ts", ".tsx", ".jsx", ".js")
+
+
+def _xmod_index(ctx, modname, suffixes):
+    """Build (and memoize on ctx) the cross-module function index for one language:
+    project-wide, unambiguous-only summaries from every file of that language."""
+    cache = getattr(ctx, "_xmod", None)
+    if cache is None:
+        cache = {}
+        try:
+            ctx._xmod = cache
+        except Exception:
+            pass
+    if modname in cache:
+        return cache[modname]
+    import importlib
+    mod = importlib.import_module("orthosec.analysis." + modname)
+    idx = (frozenset(), {})
+    if mod.available():
+        texts = []
+        for p in ctx.files:
+            if p.suffix.lower() in suffixes:
+                t = ctx.read(p)
+                if t:
+                    texts.append(t)
+        try:
+            from orthosec.analysis._crossmod import build_index
+            idx = build_index(mod, texts)
+        except Exception:
+            idx = (frozenset(), {})
+    cache[modname] = idx
+    return idx
+
 
 @register
 class OutputHandlingDetector:
@@ -100,60 +142,25 @@ class OutputHandlingDetector:
                 evidence=raw_lines[ln - 1].strip()[:200] if 0 < ln <= len(raw_lines) else "",
                 remediation=_REMEDIATION, confidence=conf)
 
-        # Go / Java AST via tree-sitter.
-        if suffix == ".go":
-            from orthosec.analysis import go_ast
-            if go_ast.available():
-                hits = go_ast.output_findings(text)
-                if hits is not None:
-                    for ln, cap in hits:
-                        yield _emit(ln, cap, 0.78)
-            return
-        if suffix == ".java":
-            from orthosec.analysis import java_ast
-            if java_ast.available():
-                hits = java_ast.output_findings(text)
-                if hits is not None:
-                    for ln, cap in hits:
-                        yield _emit(ln, cap, 0.78)
-            return
-        if suffix == ".kt":
-            from orthosec.analysis import kotlin_ast
-            if kotlin_ast.available():
-                hits = kotlin_ast.output_findings(text)
-                if hits is not None:
-                    for ln, cap in hits:
-                        yield _emit(ln, cap, 0.78)
-            return
-        if suffix == ".cs":
-            from orthosec.analysis import csharp_ast
-            if csharp_ast.available():
-                hits = csharp_ast.output_findings(text)
-                if hits is not None:
-                    for ln, cap in hits:
-                        yield _emit(ln, cap, 0.78)
-            return
-        if suffix == ".rb":
-            from orthosec.analysis import ruby_ast
-            if ruby_ast.available():
-                hits = ruby_ast.output_findings(text)
-                if hits is not None:
-                    for ln, cap in hits:
-                        yield _emit(ln, cap, 0.78)
-            return
-        if suffix == ".php":
-            from orthosec.analysis import php_ast
-            if php_ast.available():
-                hits = php_ast.output_findings(text)
+        # Per-language tree-sitter AST. Each language builds a project-wide cross-module
+        # index once per scan (memoized on ctx) so taint flows across files.
+        import importlib
+        if suffix in _TREESITTER:
+            modname, family = _TREESITTER[suffix]
+            mod = importlib.import_module("orthosec.analysis." + modname)
+            if mod.available():
+                idx = _xmod_index(ctx, modname, family)
+                hits = mod.output_findings(text, project=idx)
                 if hits is not None:
                     for ln, cap in hits:
                         yield _emit(ln, cap, 0.78)
             return
 
-        # TypeScript/JSX (and JS) AST via tree-sitter — primary, most precise path.
+        # TypeScript/JSX (and JS) AST — primary, most precise path.
         from orthosec.analysis import ts_ast
-        if ts_ast.available() and suffix in (".ts", ".tsx", ".jsx", ".js"):
-            hits = ts_ast.output_findings(text, tsx=suffix in (".tsx", ".jsx", ".js"))
+        if ts_ast.available() and suffix in _TS_FAMILY:
+            idx = _xmod_index(ctx, "ts_ast", _TS_FAMILY)
+            hits = ts_ast.output_findings(text, tsx=suffix in (".tsx", ".jsx", ".js"), project=idx)
             if hits is not None:
                 for ln, cap in hits:
                     yield _emit(ln, cap, 0.78)
