@@ -35,6 +35,49 @@ class TestTsAst(unittest.TestCase):
         hits = ts_ast.output_findings(src, tsx=True)
         assert any("dangerouslySetInnerHTML" in cap for _, cap in hits)
 
+    def test_regex_exec_not_shell(self):
+        # `/regex/.exec(x)` and `str.exec(x)` are NOT child_process.exec — a huge
+        # false-positive class found on LibreChat (regex .exec()).
+        src = ("function h(model: any) {\n"
+               "  const content = model.generate();\n"
+               "  const re = /^---/;\n"
+               "  const m = re.exec(content);\n"
+               "  const m2 = /tool/g.exec(content);\n"
+               "}\n")
+        assert ts_ast.output_findings(src, tsx=False) == []
+
+    def test_child_process_exec_still_shell(self):
+        # a real child_process.exec IS a shell sink
+        src = ("import cp from 'child_process';\n"
+               "function h(model: any) {\n"
+               "  const out = model.generate();\n"
+               "  cp.exec(out);\n"
+               "}\n")
+        assert any("shell" in cap for _, cap in ts_ast.output_findings(src, tsx=False))
+
+    def test_textarea_innerhtml_decode_not_flagged(self):
+        # Setting .innerHTML on a detached <textarea> to decode HTML entities is
+        # RCDATA (script-inert) — a safe idiom, not XSS (found on fabric).
+        src = ("function decodeHtmlEntities(text: string) {\n"
+               "  const textarea = document.createElement('textarea');\n"
+               "  textarea.innerHTML = text;\n"
+               "  return textarea.value;\n"
+               "}\n"
+               "function h(model: any) {\n"
+               "  const t = model.generate();\n"
+               "  const d = decodeHtmlEntities(t);\n"
+               "}\n")
+        assert ts_ast.output_findings(src, tsx=False) == []
+
+    def test_real_div_innerhtml_still_flagged(self):
+        # a normal element's .innerHTML with model output IS DOM XSS
+        src = ("function h(model: any) {\n"
+               "  const out = model.generate();\n"
+               "  const div = document.getElementById('x');\n"
+               "  div.innerHTML = out;\n"
+               "}\n")
+        assert any("innerHTML" in cap for _, cap in ts_ast.output_findings(src, tsx=False))
+
     def test_string_and_non_llm_not_flagged(self):
         # a string literal that mentions a sink + a non-LLM db.query must NOT fire
         src = ('function h(db: any) {\n'

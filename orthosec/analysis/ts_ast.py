@@ -24,6 +24,8 @@ _LLM_RECEIVER = re.compile(
     r"(?i)(llm|chain|agent|chat|model|openai|anthropic|gemini|bedrock|ollama|groq|"
     r"cohere|mistral|queryengine|conversation|\brag\b|\bqa\b|assistant|completion)")
 _DB_RECEIVER = re.compile(r"(?i)(cursor|conn|connection|\bdb\b|database|session|sql|knex|prisma|pool|client)")
+# Receiver that makes `.exec`/`.spawn` a real shell call (not a regex's .exec()).
+_SHELL_RECEIVER = re.compile(r"(?i)(child_?process|^cp$|^cproc$|shelljs|execa)")
 # Calls that neutralize taint (escape / sanitize / render-with-escaping). A value
 # produced by one of these is safe to place in an HTML sink — e.g. React's
 # renderToString auto-escapes, DOMPurify.sanitize strips scripts.
@@ -259,13 +261,55 @@ def _fixpoint(decls, tainted, returns_out):
     return tainted
 
 
+_SAFE_INNERHTML_TAG = re.compile(r"""(?i)^['"](textarea|title)['"]$""")
+
+
+def _is_create_textarea(val) -> bool:
+    """A `createElement("textarea"|"title")` call. Setting `.innerHTML` on such an
+    element is RCDATA (text-only, script-inert) — the HTML-entity-decode idiom, not XSS."""
+    if val is None or val.type != "call_expression":
+        return False
+    fn = val.child_by_field_name("function")
+    if fn is None:
+        return False
+    name = _prop(fn) if fn.type == "member_expression" else (_text(fn) if fn.type == "identifier" else "")
+    if name != "createElement":
+        return False
+    args = val.child_by_field_name("arguments")
+    first = next((a for a in (args.children if args else []) if a.type not in ("(", ")", ",")), None)
+    return first is not None and _SAFE_INNERHTML_TAG.search(_text(first).strip()) is not None
+
+
+def _textarea_vars(scope) -> set:
+    """Identifiers bound to a <textarea>/<title> element — their `.innerHTML` is safe."""
+    out = set()
+    for n in _walk(scope):
+        if n.type == "variable_declarator":
+            nm, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+            if nm is not None and nm.type == "identifier" and _is_create_textarea(val):
+                out.add(_text(nm))
+        elif n.type == "assignment_expression":
+            left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
+            if left is not None and left.type == "identifier" and _is_create_textarea(right):
+                out.add(_text(left))
+    return out
+
+
+def _innerhtml_safe(left, safe_vars) -> bool:
+    """True when `left` is `<textarea-var>.innerHTML` — a script-inert decode target."""
+    obj = left.child_by_field_name("object")
+    return obj is not None and obj.type == "identifier" and _text(obj) in safe_vars
+
+
 def _find_sinks(scope, tainted, add):
+    safe_vars = _textarea_vars(scope)
     for n in _walk(scope):
         t = n.type
         if t == "assignment_expression":
             left = n.child_by_field_name("left")
             if left is not None and left.type == "member_expression" \
-                    and _prop(left) == "innerHTML" and _refs(n.child_by_field_name("right"), tainted):
+                    and _prop(left) == "innerHTML" and not _innerhtml_safe(left, safe_vars) \
+                    and _refs(n.child_by_field_name("right"), tainted):
                 add(_line(n), "HTML injection (innerHTML)")
         elif t == "jsx_attribute":
             if n.child_count and _text(n.children[0]) == "dangerouslySetInnerHTML" and _refs(n, tainted):
@@ -281,7 +325,17 @@ def _find_sinks(scope, tainted, add):
             elif chain[-2:] == ["document", "write"]:
                 add(_line(n), "HTML injection (document.write)")
             elif last in ("exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync"):
-                add(_line(n), "shell execution")
+                # Gate to a real child_process call. `/regex/.exec(x)` and `str.exec` are
+                # NOT shell — only a bare imported `execSync(x)` or a `cp.exec`/`child_process.exec`
+                # receiver counts. This kills a large false-positive class (regex .exec()).
+                fn = n.child_by_field_name("function")
+                if fn is not None and (
+                        fn.type == "identifier"
+                        or (fn.type == "member_expression"
+                            and (fn.child_by_field_name("object") is not None
+                                 and fn.child_by_field_name("object").type == "identifier"
+                                 and _SHELL_RECEIVER.search(_text(fn.child_by_field_name("object")))))):
+                    add(_line(n), "shell execution")
             elif last in ("query", "raw", "execute") and any(_DB_RECEIVER.search(p) for p in chain):
                 add(_line(n), "raw SQL execution")
 
@@ -321,6 +375,7 @@ def _functions(root):
 
 
 def _has_sink_call(fn):
+    safe_vars = _textarea_vars(fn)
     for n in _walk(fn):
         if n.type == "call_expression":
             last = _callee_chain(n)[-1:]
@@ -329,7 +384,8 @@ def _has_sink_call(fn):
                 return True
         if n.type == "assignment_expression":
             left = n.child_by_field_name("left")
-            if left is not None and left.type == "member_expression" and _prop(left) == "innerHTML":
+            if left is not None and left.type == "member_expression" and _prop(left) == "innerHTML" \
+                    and not _innerhtml_safe(left, safe_vars):
                 return True
     return False
 
@@ -400,15 +456,21 @@ def output_findings(src: str, tsx: bool = True, project=None):
         for n in _walk(scope):
             if n.type != "call_expression":
                 continue
-            chain = _callee_chain(n)
-            if len(chain) != 1 or chain[0] not in summaries:
+            fn = n.child_by_field_name("function")
+            # Only a bare free-function call `foo(x)` resolves to a local/cross-module
+            # function. A method call like `/regex/.exec(x)` or `obj.foo(x)` does NOT —
+            # its callee is a member_expression, not a plain identifier.
+            if fn is None or fn.type != "identifier":
                 continue
-            params, dangerous = summaries[chain[0]]
+            name = _text(fn)
+            if name not in summaries:
+                continue
+            params, dangerous = summaries[name]
             argnode = n.child_by_field_name("arguments")
             actual = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]
             for i, arg in enumerate(actual):
                 if i < len(params) and params[i] in dangerous and _refs(arg, tainted):
-                    add(_line(n), "a helper that passes it to a dangerous sink (via %s())" % chain[0])
+                    add(_line(n), "a helper that passes it to a dangerous sink (via %s())" % name)
                     break
     return out
 

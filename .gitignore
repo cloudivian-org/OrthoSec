@@ -10,3 +10,9 @@ venv/
 .mypy_cache/
 *.sarif
 results.json
+
+# generated scan report
+orthosec-report.html
+report-*.html
+latest.html
+latest.json

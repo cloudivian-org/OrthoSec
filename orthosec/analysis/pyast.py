@@ -231,7 +231,12 @@ def safe_parse(source: str):
 # call-based via _is_llm_call) — excluded here to avoid tainting a model-name string.
 _OUTPUT_NAME = re.compile(
     r"(?i)(completion|response|\banswer|reply|generated|assistant|"
-    r"\boutput|\bresp\b|choices)")
+    # `output`/`outputs`/`output_text`… but NOT filesystem/IO names like
+    # `output_wav_path`, `output_dir`, `output_csv` (a path is not model output).
+    r"\boutput(?!_?(?:path|file|dir|folder|name|filename|wav|mp3|pcm|png|jpe?g|gif|"
+    r"csv|json|ya?ml|txt|md|html|pdf|url|uri|dst|dest|target|size|len|count|"
+    r"format|ext|buffer|stream|bytes|fd|handle|loc|location))|"
+    r"\bresp\b|choices)")
 # Calls that produce model output — unconditional (method name is LLM-specific enough).
 _LLM_CALL_METHODS = {"create", "generate", "complete", "acreate", "acomplete",
                      "agenerate", "chat", "invoke", "ainvoke", "predict", "apredict",
@@ -329,6 +334,23 @@ def _seed_output(scope: ast.AST) -> set[str]:
     return seed
 
 
+def _bound_names(target: ast.AST) -> list[str]:
+    """Names a value actually *binds* to. A plain `x = v` binds `x`; unpacking
+    `a, b = v` binds both. An attribute/subscript target (`self.x = v`, `d[k] = v`)
+    binds no local name — it mutates an existing object — so it returns nothing.
+    (Tainting the root of `self.x = tainted` would poison every `self.*` read.)"""
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, (ast.Tuple, ast.List)):
+        out: list[str] = []
+        for elt in target.elts:
+            out.extend(_bound_names(elt))
+        return out
+    if isinstance(target, ast.Starred):
+        return _bound_names(target.value)
+    return []
+
+
 def _propagate_with(scope: ast.AST, seed: set[str], is_source) -> set[str]:
     """Propagate a taint seed through assignments to a fixpoint, using `is_source`
     (a `(expr, tainted) -> bool` predicate) to decide when a value carries taint."""
@@ -339,7 +361,7 @@ def _propagate_with(scope: ast.AST, seed: set[str], is_source) -> set[str]:
         for node in ast.walk(scope):
             if isinstance(node, ast.Assign) and is_source(node.value, tainted):
                 for t in node.targets:
-                    for nm in _assigned_names(t):
+                    for nm in _bound_names(t):
                         if nm not in tainted:
                             tainted.add(nm)
                             changed = True
@@ -360,7 +382,13 @@ def _sinks_with_taint(scope: ast.AST, tainted: set[str], source_lines: list[str]
         cap = _taint_sink_capability(node)
         if not cap:
             continue
-        args = list(node.args) + [kw.value for kw in node.keywords]
+        if cap.startswith("raw SQL"):
+            # Parameterized queries bind data safely via the params argument
+            # (2nd positional, or a params=/parameters= kwarg). Only the query
+            # string itself — the first positional arg — can carry injection.
+            args = node.args[:1]
+        else:
+            args = list(node.args) + [kw.value for kw in node.keywords]
         if any(_refs_taint(a, tainted) for a in args):
             line = getattr(node, "lineno", 0)
             snippet = source_lines[line - 1].strip()[:160] if 0 < line <= len(source_lines) else ""

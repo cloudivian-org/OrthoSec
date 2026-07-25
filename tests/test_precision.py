@@ -137,5 +137,88 @@ class TestInnerHtmlPrecision(unittest.TestCase):
         self.assertIn("LLM05", _cats(_scan(src, "app.js")))
 
 
+class TestParameterizedSqlPrecision(unittest.TestCase):
+    """Parameterized queries bind data safely — taint in the params tuple is not
+    injectable (found on crewAI kickoff_task_outputs_storage.py)."""
+
+    def test_parameterized_execute_not_flagged(self):
+        src = ("def save(cursor, model):\n"
+               "    out = model.generate()\n"
+               "    cursor.execute('INSERT INTO t (v) VALUES (?)', (out,))\n")
+        self.assertNotIn("LLM05", _cats(_scan(src)))
+
+    def test_fstring_execute_flagged(self):
+        src = ("def bad(cursor, model):\n"
+               "    out = model.generate()\n"
+               "    cursor.execute(f'SELECT * FROM t WHERE v = {out}')\n")
+        self.assertIn("LLM05", _cats(_scan(src)))
+
+
+class TestRegexFallbackRolePrecision(unittest.TestCase):
+    """When the AST path is unavailable (e.g. a file using newer Python syntax than
+    the host interpreter), the regex fallback must still respect message roles:
+    untrusted input in a `"role": "user"` message is not injection (found on
+    gpt-researcher under Python 3.9)."""
+
+    # A syntax error forces the regex fallback path.
+    _BROKEN = "\ndef broken(: pass\n"
+
+    def test_user_message_fstring_not_flagged(self):
+        src = ('messages = [\n'
+               '    {"role": "system", "content": "You are a bot."},\n'
+               '    {"role": "user", "content": f"Query: {user_query}"},\n'
+               ']\n') + self._BROKEN
+        self.assertNotIn("LLM01", _cats(_scan(src)))
+
+    def test_system_message_fstring_flagged(self):
+        src = ('messages = [\n'
+               '    {"role": "system", "content": f"You are a bot. {user_query}"},\n'
+               ']\n') + self._BROKEN
+        self.assertIn("LLM01", _cats(_scan(src)))
+
+
+class TestOutputNameFilesystemPrecision(unittest.TestCase):
+    """A variable named like a file path (`output_wav_path`, `output_dir`) is not
+    model output — the name-seed must not treat it as tainted (found on
+    openai-cookbook: a hardcoded ffmpeg `subprocess.run` was flagged as LLM shell)."""
+
+    def test_output_path_subprocess_not_flagged(self):
+        src = ("import subprocess\n"
+               "def encode(output_wav_path):\n"
+               "    command = ['ffmpeg', '-i', 'in.pcm', str(output_wav_path)]\n"
+               "    subprocess.run(command, check=True)\n")
+        self.assertNotIn("LLM05", _cats(_scan(src)))
+
+    def test_bare_output_from_llm_still_flagged(self):
+        src = ("import subprocess\n"
+               "def h(model):\n"
+               "    output = model.generate()\n"
+               "    subprocess.run(output, shell=True)\n")
+        self.assertIn("LLM05", _cats(_scan(src)))
+
+
+class TestSelfAttributeTaintPrecision(unittest.TestCase):
+    """Assigning tainted data to `self.x` must not taint the object `self` and thus
+    poison every `self.*` read (found on crewAI: an i18n system prompt using
+    `self.agent.role` was wrongly flagged)."""
+
+    def test_self_attribute_does_not_poison_system_prompt(self):
+        src = ("class A:\n"
+               "    def run(self, model):\n"
+               "        out = model.generate()\n"
+               "        self.state.answer = out\n"
+               "        role = self.agent.role\n"
+               "        system_prompt = I18N.retrieve('k').format(role=role)\n"
+               "        return system_prompt\n")
+        self.assertNotIn("LLM01", _cats(_scan(src)))
+
+    def test_real_untrusted_into_system_prompt_flagged(self):
+        src = ("def h(request):\n"
+               "    q = request.json['q']\n"
+               "    system_prompt = 'You are a bot. ' + q\n"
+               "    return system_prompt\n")
+        self.assertIn("LLM01", _cats(_scan(src)))
+
+
 if __name__ == "__main__":
     unittest.main()

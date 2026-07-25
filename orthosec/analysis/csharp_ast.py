@@ -312,13 +312,15 @@ def _dangerous_params(fn, returns_out):
 
 
 def _iter_calls(scope):
-    # method NAME (last segment) for every invocation: bare `Foo(x)` or `Helper.Run(x)` /
-    # `obj.Run(x)` — cross-module resolves the name (unambiguous-only).
+    # method NAME for a bare `Foo(x)` or a STATIC `Helper.Run(x)` (receiver is a Capitalized
+    # class). An instance `obj.Run(x)` is NOT resolved cross-module by name.
     for n in _walk(scope):
         if n.type != "invocation_expression":
             continue
         chain = _callee_chain(n)
         if not chain:
+            continue
+        if len(chain) >= 2 and not chain[-2][:1].isupper():
             continue
         argnode = n.child_by_field_name("arguments")
         args = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]

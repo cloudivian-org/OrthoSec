@@ -292,13 +292,17 @@ def _dangerous_params(fn, returns_out):
 
 
 def _iter_calls(scope):
-    # Yield method NAME (last segment) for every invocation — a bare `foo()` (local helper)
-    # or `Helper.run()` / `obj.run()` (which cross-module resolves by name, unambiguous-only).
+    # Yield method NAME for a bare `foo()` (local helper) or a STATIC `Helper.run()` call
+    # (receiver is a Capitalized class name). An instance call `obj.run()` is NOT resolved
+    # cross-module by name — that would collide with unrelated same-named methods.
     for n in _walk(scope):
         if n.type != "method_invocation":
             continue
         nm = n.child_by_field_name("name")
         if nm is None:
+            continue
+        obj = n.child_by_field_name("object")
+        if obj is not None and not (obj.type == "identifier" and _text(obj)[:1].isupper()):
             continue
         argnode = n.child_by_field_name("arguments")
         args = [a for a in (argnode.children if argnode else []) if a.type not in ("(", ")", ",")]

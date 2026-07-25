@@ -4,6 +4,46 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-07-25
+
+### Fixed — precision (false positives found stress-testing less-mature public repos)
+- **`regex.exec()` is no longer mistaken for `child_process.exec` (shell).** A method
+  call like `/pattern/.exec(x)` or `str.exec(x)` has a member-expression callee, not a
+  bare `exec` identifier, so the TS shell/eval/SQL sinks and interprocedural resolution
+  now fire only for true bare-identifier calls (and a `child_process`-ish receiver for
+  exec/spawn). This removed 51 → 0 false LLM05 HIGHs on LibreChat.
+- **Cross-module method resolution is gated to static, capitalized receivers**
+  (`Sink.run(x)`), never instance/regex method calls (`obj.run(x)`, `regex.exec(x)`), in
+  Java/Kotlin/C# — preventing method-name collisions across files.
+- **Parameterized SQL is no longer flagged (LLM05, Python).** `cursor.execute(sql, params)`
+  binds `params` safely; taint is now checked only against the query-string argument, so
+  `execute("… VALUES (?)", (model_output,))` is clean while an f-string query still fires.
+- **Assigning tainted data to `self.x` no longer poisons the object (Python).** Taint
+  propagates only to simple `name`/tuple bindings, not to the root of an attribute/subscript
+  target (`self.state.x = out`) — which had wrongly tainted every later `self.*` read (e.g.
+  an i18n system prompt built from `self.agent.role`).
+- **`<textarea>`/`<title>` `.innerHTML` decode idiom is recognized as safe (LLM05, TS).**
+  Setting `.innerHTML` on a detached `createElement('textarea')` element to decode HTML
+  entities is RCDATA (script-inert), not XSS.
+- **Filesystem-path variables are no longer mistaken for model output (LLM05, Python).**
+  The output name-seed no longer matches `output_wav_path`, `output_dir`, `output_csv`,
+  `output_file`, etc. (a path is not an LLM response) — `output`, `outputs`, `output_text`
+  still seed. Fixed a hardcoded-ffmpeg `subprocess.run` flagged as LLM shell on openai-cookbook.
+- **The LLM01 regex fallback now respects message roles.** When the AST path is
+  unavailable (a target file uses newer Python syntax than the host interpreter — OrthoSec
+  supports 3.9+), untrusted input inside a `"role": "user"` message is no longer flagged;
+  only untrusted → system prompt fires, matching the AST path. (Found on gpt-researcher
+  under Python 3.9.) Running OrthoSec on Python 3.11+ is recommended for full AST precision.
+
+### Fixed — packaging
+- Pinned `tree-sitter-c-sharp` to a build compatible with `tree-sitter` 0.23.x (the 0.23.5
+  wheel ships a broken external-scanner binding on some platforms).
+
+### Validation
+- Re-validated on 20 public repos (LibreChat, chatbot-ui, crewAI, gpt-researcher, fabric,
+  BotSharp, langchain4j, instructor-php, …). Key true positives intact: langchain4j
+  double-hop SQL retriever, BotSharp SQLi (×2), instructor-php system-prompt injection (×8).
+
 ## [0.9.0] — 2026-07-25
 
 ### Added

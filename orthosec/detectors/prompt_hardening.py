@@ -24,6 +24,7 @@ from orthosec.analysis.project import cross_file_injection_sinks
 # System-prompt shape + unsanitized-concat + hardening (regex path for non-Python).
 _SYS_ASSIGN = re.compile(r"(?i)(system_prompt|system_message|system_instruction|SYSTEM_PROMPT)\s*[:=]")
 _ROLE_SYSTEM = re.compile(r"""(?i)['"]role['"]\s*:\s*['"]system['"]""")
+_ROLE_ANY = re.compile(r"""(?i)['"]role['"]\s*:\s*['"](\w+)['"]""")
 _CONCAT_INJECTION = re.compile(
     r"""(?xi)
     (f['"].*\{[^}]*(user|input|query|question|message|content|request)[^}]*\}.*['"]) |
@@ -35,6 +36,17 @@ _HARDENING = re.compile(
     r"(?i)(untrusted|do not follow|ignore any instructions|delimited by|<user_input>|"
     r"treat .* as data|never reveal|do not disclose your (system )?prompt)")
 _SECRET_IN_PROMPT = re.compile(r"(?i)(api[_-]?key|password|secret|token)\s*[:=]\s*\S")
+
+
+def _enclosing_role(lines, lineno):
+    """Role of the message dict a line sits in, by scanning backward to the nearest
+    `"role": "<x>"` marker within a small window. Returns the role string, or None
+    if no nearby role marker (not inside a chat-message dict)."""
+    for i in range(lineno - 1, max(0, lineno - 8) - 1, -1):
+        m = _ROLE_ANY.search(lines[i])
+        if m:
+            return m.group(1).lower()
+    return None
 # Log / print / exception lines interpolate user input for diagnostics, not into a
 # prompt — the regex fallback must not read them as prompt injection (AST already skips).
 _LOG_LINE = re.compile(
@@ -133,6 +145,12 @@ class PromptHardeningDetector:
                 # A log/print or a raised-exception message interpolating user input is a
                 # diagnostic string, not a prompt.
                 if _LOG_LINE.search(line) or line.lstrip().startswith("raise "):
+                    continue
+                # Untrusted input inside a `"role": "user"` message is expected — the
+                # injection risk is untrusted -> SYSTEM prompt. Skip when the nearest
+                # enclosing role marker is non-system (the AST path already does this;
+                # this keeps the regex fallback from firing on user-message f-strings).
+                if _enclosing_role(lines, lineno) not in (None, "system"):
                     continue
                 window = "\n".join(lines[max(0, lineno - 4):lineno + 3])
                 if _HARDENING.search(window):
