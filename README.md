@@ -12,6 +12,11 @@ Technical AI-risk analysis with executive business context. Open source.</p>
   <a href="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml"><img src="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 -->
 
+<p align="center">
+  <img src="docs/orthosec-compare.png" alt="A typical scanner's 51 false alarms versus OrthoSec's one real, traced finding" width="840">
+</p>
+<p align="center"><sub><i>A typical scanner buries you in false alarms — OrthoSec follows the data to the one finding that's real.</i></sub></p>
+
 ---
 
 OrthoSec scans any AI product and answers two questions at once:
