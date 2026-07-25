@@ -51,6 +51,34 @@ Try it on the bundled vulnerable demo:
 python -m orthosec.cli scan examples/vulnerable-agent
 ```
 
+### Scan a private or remote repo
+
+`orthosec scan` accepts a **git URL or `owner/repo` shorthand** as well as a local path. It shallow-clones into a temp dir, scans it, and deletes the clone when it's done — nothing is left behind.
+
+```bash
+orthosec scan https://github.com/acme/ai-app.git      # public remote
+orthosec scan acme/ai-app                              # GitHub shorthand
+orthosec scan git@github.com:acme/private-ai.git       # private via your SSH key
+```
+
+For a **private** repo, pick whichever is safest for you — a credential never appears on the command line or in logs:
+
+```bash
+# 1. SSH (recommended) — uses your ssh-agent, no token to manage
+orthosec scan git@github.com:acme/private-ai.git
+
+# 2. Your existing git credential helper (gh / macOS keychain) — nothing to pass
+orthosec scan https://github.com/acme/private-ai.git
+
+# 3. A token piped over stdin — never stored, never logged, never in `ps`
+printf '%s' "$MY_TOKEN" | orthosec scan https://github.com/acme/private-ai.git --git-token-stdin
+
+# 4. A token from the environment (CI-friendly)
+ORTHOSEC_GIT_TOKEN=$MY_TOKEN orthosec scan https://github.com/acme/private-ai.git
+```
+
+A token supplied via `--git-token-stdin` or `ORTHOSEC_GIT_TOKEN` / `GITHUB_TOKEN` is handed to git through `GIT_ASKPASS` and the child-process environment only — it's never placed in the clone URL, argv, or any log line. Add `--branch NAME` to pick a branch, or `--keep-clone` to keep the checkout. Default token username is `x-access-token` (works for GitHub PATs); override with `--git-username` for other providers.
+
 ```
   Posture score: 47/100   Grade:  D
   2 critical   2 high

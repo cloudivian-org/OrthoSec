@@ -34,7 +34,19 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
 
     p_scan = sub.add_parser("scan", help="Scan an AI product for security risk")
-    p_scan.add_argument("path", help="Path to the AI product (repo / dir / file)")
+    p_scan.add_argument("path",
+                        help="Local path, or a git URL / owner/repo to clone and scan "
+                             "(private repos supported — see --git-token-stdin)")
+    p_scan.add_argument("--branch", metavar="NAME",
+                        help="Branch to clone when the target is a remote git URL")
+    p_scan.add_argument("--git-token-stdin", action="store_true",
+                        help="Read a git access token from stdin for a private remote "
+                             "(safer than a CLI arg or env var; never logged). "
+                             "Env fallback: ORTHOSEC_GIT_TOKEN / GITHUB_TOKEN")
+    p_scan.add_argument("--git-username", default=None,
+                        help="Username for token auth (default: x-access-token, works for GitHub PATs)")
+    p_scan.add_argument("--keep-clone", action="store_true",
+                        help="Keep the temporary clone instead of deleting it after the scan")
     p_scan.add_argument("--profile", default=None, choices=list(PROFILES),
                         help=f"Audience view (default: {DEFAULT_PROFILE}, or .orthosec.yml)")
     p_scan.add_argument("--json", metavar="FILE", help="Write full findings as JSON")
@@ -121,6 +133,33 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_scan(args) -> int:
+    """Resolve a remote git target to a local clone (if needed), then run the scan.
+    Credentials are handled by orthosec.gitclone and never touch argv or logs."""
+    from orthosec.gitclone import looks_remote, clone, token_from_env, CloneError
+    if not looks_remote(args.path):
+        return _run_scan(args)
+
+    token = None
+    if getattr(args, "git_token_stdin", False):
+        token = sys.stdin.readline().strip()
+        if not token:
+            print("error: --git-token-stdin was set but no token was read from stdin",
+                  file=sys.stderr)
+            return 2
+    token = token or token_from_env()
+    try:
+        with clone(args.path, branch=getattr(args, "branch", None), token=token,
+                   username=getattr(args, "git_username", None),
+                   keep=getattr(args, "keep_clone", False),
+                   log=lambda m: print(m, file=sys.stderr)) as local:
+            args.path = local
+            return _run_scan(args)
+    except CloneError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_scan(args) -> int:
     import os
     cfg = load_project_config(args.path)  # .orthosec.yml at the target root, if any
     profile = get_profile(args.profile or cfg.get("profile")

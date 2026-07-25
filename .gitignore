@@ -16,3 +16,6 @@ orthosec-report.html
 report-*.html
 latest.html
 latest.json
+
+# macOS
+.DS_Store

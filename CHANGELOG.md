@@ -4,6 +4,23 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-07-25
+
+### Added
+- **Scan remote and private repositories directly.** `orthosec scan` now accepts a git
+  URL or `owner/repo` shorthand in addition to a local path (`orthosec/gitclone.py`). It
+  shallow-clones into a temporary directory, scans, and removes the clone afterward.
+  - **Auth, safest-first:** SSH URLs use the ssh-agent; HTTPS uses the user's existing git
+    credential helper (gh / keychain) by default; an explicit token can be supplied via
+    `--git-token-stdin` (read from stdin) or `ORTHOSEC_GIT_TOKEN` / `GITHUB_TOKEN` /
+    `GH_TOKEN` / `GITLAB_TOKEN`.
+  - **Credentials never leak:** a token is passed to git only through `GIT_ASKPASS` and the
+    child-process environment — never in the clone URL, argv (`ps`), or any log line; URLs
+    are redacted before printing. `GIT_TERMINAL_PROMPT=0` avoids hanging on a prompt.
+  - New flags: `--branch`, `--git-token-stdin`, `--git-username` (default `x-access-token`),
+    `--keep-clone`. `tests/test_gitclone.py` (12 tests) incl. a check that the token never
+    reaches argv and a real local clone round-trip.
+
 ## [0.9.1] — 2026-07-25
 
 ### Fixed — precision (false positives found stress-testing less-mature public repos)
