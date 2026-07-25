@@ -37,7 +37,9 @@ AI products fail in AI-specific ways — prompt injection, excessive agency, mod
 Zero dependencies. Install, or clone and run:
 
 ```bash
-pip install orthosec                     # + extras: orthosec[intel,ts,js,pretty]
+pip install orthosec                     # core (Python analysis + report), zero deps
+# optional extras — intel layer, extra languages, prettier output:
+pip install "orthosec[intel,ts,js,go,java,kotlin,csharp,ruby,php,rust,pretty]"
 orthosec scan ./path/to/your/ai-app
 
 # from source (no install):
@@ -313,6 +315,41 @@ The baseline matches by a **stable fingerprint** (rule + file + evidence, not li
 return pickle.load(f)          # orthosec: ignore            (suppress any finding here)
 return pickle.load(f)          # orthosec: ignore LLM03      (only this category)
 ```
+
+## CLI & configuration reference
+
+Every command supports `--help` — run `orthosec <command> --help` for its full flag list.
+
+| Command | What it does | Key options |
+|---|---|---|
+| `scan <path \| git-url \| owner/repo>` | Scan a local path, or clone & scan a remote/private repo | `--profile`, `--html/--json/--sarif FILE`, `--no-report`, `--no-exec`, `--fail-on {critical,high,medium,low,none}`, `--diff [REF]`, `--baseline/--write-baseline FILE`, `--open`; **remote:** `--branch`, `--git-token-stdin`, `--git-username`, `--keep-clone` |
+| `ask <path> "<question>"` | Grounded executive Q&A about a scan *(needs an LLM key)* | `--profile` |
+| `remediate <path>` | Plan or apply fixes via remediation agents | `--rule`, `--agent`, `--suggest`, `--auto`, `--no-verify` |
+| `watch <path>` | Re-scan on a schedule, writing a report each run | `--every`, `--report-dir`, `--profile`, `--no-exec` |
+| `schedule <path>` | Print crontab / GitHub Actions / systemd snippets | `--cron`, `--profile` |
+| `proxy` | Inline runtime gateway in front of a model provider | `--upstream`, `--host`, `--port`, `--mode {monitor,block}` |
+| `detectors` | List the active detectors | — |
+| `profiles` | List the audience profiles | — |
+
+**Ways to run OrthoSec:** static `scan` (CLI / Docker / CI) · scheduled `watch` · runtime `guard` SDK (Python + Node) · inline `proxy` gateway. Same taxonomy and report across all four.
+
+**Configuration & environment variables** — put any of these in a `.env` (copy `.env.example`); real environment variables always win over the file. CLI flags win over both.
+
+| Variable | Scope | Effect |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | intel / report / `ask` | Enable the executive briefing + Q&A via Anthropic. Model = `ORTHOSEC_MODEL` (default `claude-opus-4-8`) |
+| `AZURE_API_KEY` + `AZURE_BASE_URL` + `AZURE_MODELS` | intel | Use Azure AI Foundry (Claude via the Anthropic Messages API) — auto-selected when set |
+| `ORTHOSEC_MODEL` | intel | Override the model id |
+| `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
+| `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |
+| `ORTHOSEC_OPEN` | scan | `1` opens the report in a browser after the scan |
+| `ORTHOSEC_PROFILE` | all | Default audience profile (`engineer`/`appsec`/`ciso`/`product`) |
+| `ORTHOSEC_FAIL_ON` | scan | Default severity gate for a non-zero exit |
+| `ORTHOSEC_WATCH_EVERY` · `ORTHOSEC_REPORT_DIR` · `ORTHOSEC_CRON` | watch / schedule | Scheduling defaults |
+| `ORTHOSEC_UPSTREAM` | proxy | Provider base URL for the inline gateway |
+| `ORTHOSEC_GIT_TOKEN` · `GITHUB_TOKEN` · `GH_TOKEN` · `GITLAB_TOKEN` | scan | Token for cloning a **private** repo (never logged; see `--git-token-stdin`) |
+
+> The deterministic core needs no keys and no network — an LLM key only unlocks the executive narrative + `ask`. Without one, the report still renders posture, `$`-risk, and compliance from the deterministic findings.
 
 ## Detection efficacy
 
