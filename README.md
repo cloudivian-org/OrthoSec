@@ -39,7 +39,7 @@ Zero dependencies. Install, or clone and run:
 ```bash
 pip install orthosec                     # core (Python analysis + report), zero deps
 # optional extras — intel layer, extra languages, prettier output:
-pip install "orthosec[intel,ts,js,go,java,kotlin,csharp,ruby,php,rust,pretty]"
+pip install "orthosec[intel,ts,js,go,java,kotlin,csharp,ruby,php,rust,semgrep,pretty]"
 orthosec scan ./path/to/your/ai-app
 
 # from source (no install):
@@ -237,6 +237,8 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 
 **Full OWASP LLM Top-10 (2025) coverage** — all ten categories, 11 detectors, benchmark-gated at 100% precision/recall.
 
+**Optional Semgrep engine (deterministic).** For general code-security coverage beyond the LLM dataflow surface — command injection, TLS bypass, auth mistakes, and anything in a Semgrep ruleset — enable the bundled [Semgrep](https://semgrep.dev) engine: `pip install "orthosec[semgrep]"` then `ORTHOSEC_SEMGREP=1 orthosec scan …`. Results map straight onto OrthoSec's findings, score, and report. It's **opt-in and deterministic** (no probabilistic false-positive risk), off by default, and adds zero cost when disabled. Point `ORTHOSEC_SEMGREP_CONFIG` at a larger ruleset (`p/security-audit`, a path, your own rules) to go broader than the bundled starter set.
+
 Behavior detectors **ignore comments and negation** (a `# no confirmation` comment is never read as a mitigation) — false-negative avoidance is first-class.
 
 **Dataflow, not line-proximity.** The three dataflow detectors — untrusted input → system prompt (LLM01), model output → dangerous sink (LLM05), and dangerous sink inside a model-invokable tool (LLM06) — fire only when the *actual* data reaches the *actual* sink. They trace it at any distance: **intra-function → interprocedural (across calls) → cross-module (import-resolved, including re-export chains)**, respecting trust-boundary and sanitizer mitigations. Tracking is **framework-aware** — it recognizes model output from LangChain / LlamaIndex / OpenAI / Anthropic call shapes (`chain.invoke`, `query_engine.query`, `chat.completions.create`, …) and untrusted input from Flask / FastAPI / Django request objects.
@@ -366,6 +368,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_FAIL_ON` | scan | Default severity gate for a non-zero exit |
 | `ORTHOSEC_WATCH_EVERY` · `ORTHOSEC_REPORT_DIR` · `ORTHOSEC_CRON` | watch / schedule | Scheduling defaults |
 | `ORTHOSEC_UPSTREAM` | proxy | Provider base URL for the inline gateway |
+| `ORTHOSEC_SEMGREP` · `ORTHOSEC_SEMGREP_CONFIG` | scan | `1` enables the optional Semgrep engine; config points at a ruleset (default: bundled starter rules). Needs `orthosec[semgrep]` |
 | `ORTHOSEC_GUARD_MODEL_URL` | guard / proxy | Enable the optional local model-backed injection check (endpoint to POST to) |
 | `ORTHOSEC_GUARD_MODEL_KIND` · `ORTHOSEC_GUARD_MODEL` | guard | Endpoint shape (`classifier`/`ollama`/`openai`) + model name |
 | `ORTHOSEC_GUARD_THRESHOLD` · `ORTHOSEC_GUARD_TIMEOUT` · `ORTHOSEC_GUARD_API_KEY` | guard | Score threshold (0.5), per-call timeout (4s), optional bearer token |

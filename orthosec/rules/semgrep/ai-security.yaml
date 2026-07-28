@@ -1,0 +1,73 @@
+# OrthoSec bundled Semgrep starter rules.
+#
+# These are deterministic, high-signal code-security patterns that OrthoSec's LLM
+# dataflow detectors do NOT cover (they focus on model-output/untrusted-input flows).
+# This is a small starter set — point ORTHOSEC_SEMGREP_CONFIG at a larger config
+# (e.g. `p/security-audit`, `p/owasp-top-ten`, or your own rules dir) to go broader.
+rules:
+  - id: orthosec-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >-
+      subprocess called with shell=True enables command injection when any argument is
+      attacker- or model-influenced. Pass an argument list and use shell=False.
+    metadata:
+      owasp: LLM05
+      category: security
+      references: ["https://owasp.org/www-community/attacks/Command_Injection"]
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.check_output(..., shell=True, ...)
+
+  - id: orthosec-requests-tls-verify-disabled
+    languages: [python]
+    severity: WARNING
+    message: >-
+      TLS certificate verification disabled (verify=False) — traffic to the model/API
+      provider can be intercepted or tampered with. Remove verify=False.
+    metadata:
+      owasp: LLM05
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: requests.$M(..., verify=False, ...)
+          - pattern: httpx.$M(..., verify=False, ...)
+
+  - id: orthosec-flask-debug-true
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Running Flask with debug=True exposes the Werkzeug interactive debugger (remote
+      code execution) if reachable in production. Disable debug outside local dev.
+    metadata:
+      owasp: LLM05
+      category: security
+    pattern: $APP.run(..., debug=True, ...)
+
+  - id: orthosec-jwt-signature-verification-disabled
+    languages: [python]
+    severity: ERROR
+    message: >-
+      JWT signature verification disabled — any user can forge a token and bypass
+      authentication. Verify the signature and pin the algorithm.
+    metadata:
+      owasp: LLM02
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: jwt.decode(..., verify=False, ...)
+          - pattern: 'jwt.decode(..., options={..., "verify_signature": False, ...}, ...)'
+
+  - id: orthosec-insecure-tempfile-mktemp
+    languages: [python]
+    severity: WARNING
+    message: >-
+      tempfile.mktemp() is race-prone and insecure. Use tempfile.mkstemp() or
+      tempfile.NamedTemporaryFile().
+    metadata:
+      owasp: LLM05
+      category: security
+    pattern: tempfile.mktemp(...)

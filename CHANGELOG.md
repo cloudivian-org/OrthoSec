@@ -4,6 +4,22 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.10.3] — 2026-07-25
+
+### Added
+- **Optional Semgrep engine — a deterministic complement to the built-in detectors.**
+  Enable with `pip install "orthosec[semgrep]"` + `ORTHOSEC_SEMGREP=1` to broaden coverage
+  to general code-security patterns (command injection, TLS bypass, auth mistakes, …) that
+  sit outside OrthoSec's LLM-dataflow surface. Results map straight onto OrthoSec findings,
+  score, and report. **Opt-in and zero-cost when off** (the detector returns immediately
+  unless the flag is set and the `semgrep` binary is present), and fully **deterministic**
+  — no probabilistic false-positive risk. Ships a small bundled starter ruleset
+  (`orthosec/rules/semgrep/ai-security.yaml`); point `ORTHOSEC_SEMGREP_CONFIG` at a larger
+  config (`p/security-audit`, a path, custom rules) to go broader.
+  `orthosec/detectors/semgrep_scan.py`, `tests/test_semgrep.py` (10 tests incl. a real
+  `semgrep --validate` check of the bundled rules). Validated end-to-end against real
+  semgrep (shell=True / verify=False / mktemp correctly flagged; clean code not).
+
 ## [0.10.2] — 2026-07-25
 
 ### Added
