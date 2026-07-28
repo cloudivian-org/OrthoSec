@@ -69,10 +69,16 @@ def _resolve_client_and_model():
     """Pick the LLM backend from the environment. Returns (client, model) or (None, None).
 
     Provider precedence:
-      1. Azure AI Foundry (Anthropic-compatible Messages API) — AZURE_API_KEY + AZURE_BASE_URL.
+      1. Local / self-hosted OpenAI-compatible model — ORTHOSEC_LOCAL_MODEL_URL (e.g. a
+         security model like Foundation-Sec-8B via Ollama). Stdlib-only; no anthropic dep.
+      2. Azure AI Foundry (Anthropic-compatible Messages API) — AZURE_API_KEY + AZURE_BASE_URL.
          Model comes from ORTHOSEC_MODEL, else the first id in AZURE_MODELS.
-      2. First-party Anthropic API — ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN.
+      3. First-party Anthropic API — ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN.
     """
+    from orthosec.intel import local_backend
+    if local_backend.enabled():
+        return local_backend.resolve()
+
     try:
         import anthropic  # optional dependency (orthosec[intel])
     except ImportError:

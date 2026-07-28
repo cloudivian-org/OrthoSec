@@ -127,6 +127,12 @@ python -m orthosec.cli ask  ./my-ai-app "What's our EU AI Act exposure and what 
 
 **Configuration (`.env`)** — copy `.env.example` to `.env`. Real environment variables always win over the file.
 
+- **Local / self-hosted model** (highest precedence, 100% offline) — set `ORTHOSEC_LOCAL_MODEL_URL` to an OpenAI-compatible chat endpoint you run yourself. Great for a **security-specialized model like Foundation-Sec-8B** via Ollama — the briefing, `ask`, and `remediate --auto` all run on your machine, source never leaves. Needs no `anthropic` dependency.
+  ```bash
+  # Foundation-Sec-8B (or any security model) via Ollama's OpenAI-compatible API
+  export ORTHOSEC_LOCAL_MODEL_URL=http://localhost:11434/v1/chat/completions
+  export ORTHOSEC_LOCAL_MODEL=hf.co/fdtn-ai/Foundation-Sec-8B-Q4_K_M
+  ```
 - **Anthropic API** — set `ANTHROPIC_API_KEY`. Model defaults to `claude-opus-4-8` (`ORTHOSEC_MODEL` overrides).
 - **Azure AI Foundry** (Claude via the Anthropic Messages API) — set `AZURE_API_KEY`, `AZURE_BASE_URL`, and `AZURE_MODELS` (e.g. `claude-sonnet-4-6`). OrthoSec auto-selects the Azure backend when these are present.
 
@@ -184,7 +190,7 @@ python -m orthosec.cli remediate ./my-ai-app --rule ORTHO-SUPPLY-001 --auto     
 | Provenance | untrusted RAG ingestion (LLM08) | manual |
 | Secret Rotation | committed credentials (LLM02) | manual |
 
-For well-understood cases (`torch.load` → `weights_only=True`, `yaml.load` → `yaml.safe_load`) auto-fix applies a **deterministic, LLM-free** one-line edit — no API key, fully reproducible. Everything else falls back to an intel-layer-drafted patch. Either way OrthoSec backs up the original to `*.orig`, applies the fix, then **re-scans to verify the finding is resolved** and flags any new finding the patch introduced (`--no-verify` to skip). Rotation and source-trust decisions stay manual by design. Design contract: the deterministic layer decides **what** is wrong and the plan; the LLM only drafts the **patch**, never invents findings.
+For well-understood cases (`torch.load` → `weights_only=True`, `yaml.load` → `yaml.safe_load`) auto-fix applies a **deterministic, LLM-free** one-line edit — no API key, fully reproducible. Everything else falls back to an intel-layer-drafted patch — which can run on a **local security model** (Foundation-Sec-8B via `ORTHOSEC_LOCAL_MODEL_URL`) so patches are drafted entirely on your machine. Either way OrthoSec backs up the original to `*.orig`, applies the fix, then **re-scans to verify the finding is resolved** and flags any new finding the patch introduced (`--no-verify` to skip). Rotation and source-trust decisions stay manual by design. Design contract: the deterministic layer decides **what** is wrong and the plan; the LLM only drafts the **patch**, never invents findings.
 
 ## Integrate with any AI product
 
@@ -351,6 +357,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 |---|---|---|
 | `ANTHROPIC_API_KEY` | intel / report / `ask` | Enable the executive briefing + Q&A via Anthropic. Model = `ORTHOSEC_MODEL` (default `claude-opus-4-8`) |
 | `AZURE_API_KEY` + `AZURE_BASE_URL` + `AZURE_MODELS` | intel | Use Azure AI Foundry (Claude via the Anthropic Messages API) — auto-selected when set |
+| `ORTHOSEC_LOCAL_MODEL_URL` | intel / remediation | Use a **local** OpenAI-compatible model (e.g. Foundation-Sec-8B via Ollama) for briefing / `ask` / `remediate --auto` — highest precedence, offline. With `ORTHOSEC_LOCAL_MODEL` · `ORTHOSEC_LOCAL_API_KEY` · `ORTHOSEC_LOCAL_TIMEOUT` |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |

@@ -4,6 +4,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-07-25
+
+### Added
+- **Local / self-hosted model backend for the intel + remediation layer (Foundation-Sec-8B
+  and friends).** Set `ORTHOSEC_LOCAL_MODEL_URL` to an OpenAI-compatible chat endpoint you
+  run yourself (Ollama `/v1`, vLLM, llama.cpp) and the executive briefing, `ask`, and
+  `remediate --auto` all run on a **local** model — source code never leaves the machine.
+  Ideal for a security-specialized model like Foundation-Sec-8B. `orthosec/intel/local_backend.py`
+  presents the Anthropic-Messages surface over the OpenAI chat API, so nothing downstream
+  changes; it's the **highest-precedence** backend (local → Azure → Anthropic) and needs
+  **no `anthropic` dependency** (stdlib-only HTTP). Env: `ORTHOSEC_LOCAL_MODEL`,
+  `ORTHOSEC_LOCAL_API_KEY`, `ORTHOSEC_LOCAL_TIMEOUT`. `tests/test_local_backend.py` (8 tests).
+  - The trust contract is unchanged: deterministic fixes are still preferred, LLM patches
+    stay opt-in (`--auto`) and re-scan-verified, and the model never invents a finding.
+
 ## [0.10.1] — 2026-07-25
 
 ### Added
