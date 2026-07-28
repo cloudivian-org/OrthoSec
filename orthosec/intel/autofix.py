@@ -30,9 +30,14 @@ _FIX_SYSTEM = textwrap.dedent(
 _CODE_BLOCK = re.compile(r"```[a-zA-Z0-9_+-]*\n(.*?)```", re.S)
 
 
-def suggest_patch(finding: Finding, file_text: str) -> str | None:
-    """Return the full corrected file text for `finding`, or None if unavailable."""
-    client, model = _resolve_client_and_model()
+def suggest_patch(finding: Finding, file_text: str, client=None, model=None) -> str | None:
+    """Return the full corrected file text for `finding`, or None if unavailable.
+
+    Pass an explicit (client, model) to draft with a specific backend — the remediation
+    cascade uses this to try a local security model then fall back to a cloud model.
+    """
+    if client is None:
+        client, model = _resolve_client_and_model()
     if client is None:
         return None
     prompt = (

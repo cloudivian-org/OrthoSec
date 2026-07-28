@@ -4,6 +4,26 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-25
+
+### Added
+- **Verify-gated remediation cascade — `remediate --auto` now tries fix strategies in
+  order and re-scans after every attempt.** A candidate is kept only if the re-scan
+  confirms the finding is **resolved with no new HIGH/critical regression**; otherwise it
+  is **reverted** and the next strategy runs. Strategies: (1) deterministic codemod,
+  (2) local security model (Foundation-Sec-8B via `ORTHOSEC_LOCAL_MODEL_URL`), (3) cloud
+  model (Anthropic/Azure) — a true fallback chain. The re-scan is the auto-catch: a fix
+  that doesn't verify is undone, not shipped. `*.orig` backup is written only when a fix
+  is kept. `tests/test_remediation_cascade.py` (5 tests: deterministic success, revert on
+  unverifiable fix, fall-through to the next strategy, and ordering).
+- **`ORTHOSEC_FIX_ORDER` posture** — `deterministic-first` (default, most reproducible) or
+  `model-first` to try the models ahead of the deterministic codemod. Realizes the
+  "strongest-first, auto-catch-and-fall-back" model while keeping the deterministic engine
+  as the verification arbiter.
+- `autofix.suggest_patch(finding, text, client, model)` now accepts an explicit backend;
+  `narrative._resolve_cloud_client_and_model()` added so the cascade can fall back from a
+  local model to a cloud model as a distinct, independently-verified strategy.
+
 ## [0.10.4] — 2026-07-25
 
 ### Added

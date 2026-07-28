@@ -78,7 +78,12 @@ def _resolve_client_and_model():
     from orthosec.intel import local_backend
     if local_backend.enabled():
         return local_backend.resolve()
+    return _resolve_cloud_client_and_model()
 
+
+def _resolve_cloud_client_and_model():
+    """Azure / Anthropic backend only (skips the local model). Lets the remediation
+    cascade fall back from a local model to a cloud model as a distinct strategy."""
     try:
         import anthropic  # optional dependency (orthosec[intel])
     except ImportError:

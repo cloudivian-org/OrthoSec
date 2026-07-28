@@ -316,25 +316,23 @@ def _cmd_remediate(args) -> int:
         for i, step in enumerate(a.steps, 1):
             print(f"      {i}. {step}")
 
-        if args.suggest or args.auto:
+        if args.suggest:
             new_text, kind = _build_fix(f, root)
             if new_text is None:
-                if det:
-                    print("    [deterministic fix did not apply cleanly here]")
-                else:
-                    print("    [no patch: set AZURE_API_KEY/ANTHROPIC_API_KEY + install orthosec[intel]]")
-            elif args.auto and (kind == "deterministic" or a.auto_available):
-                applied += _apply_patch(root, f.file, new_text)
-                if not args.no_verify:
-                    ok, new_findings = _verify_fix(result, root, f, pre_fps.get(f.file, set()))
-                    resolved += 1 if ok else 0
-                    regressed += len(new_findings)
-                    _print_verify(ok, new_findings)
-            elif args.auto:
-                print("    [skipped auto: this agent is manual-only for safety]")
+                print("    [no patch: set AZURE_API_KEY/ANTHROPIC_API_KEY + install orthosec[intel]]"
+                      if not det else "    [deterministic fix did not apply cleanly here]")
             else:
                 print(f"    ── suggested fix ({kind}; review, not written) ──")
                 _print_line_diff(f, root, new_text)
+        elif args.auto:
+            if not (det or a.auto_available):
+                print("    [skipped auto: this agent is manual-only for safety]")
+            else:
+                rec = _cascade_apply(f, root, result, pre_fps.get(f.file, set()), not args.no_verify)
+                applied += 1 if rec["status"] in ("resolved", "applied") else 0
+                resolved += 1 if rec["status"] == "resolved" else 0
+                regressed += len(rec.get("new", []))
+                _print_cascade(rec)
         print()
 
     if args.auto:
@@ -359,6 +357,97 @@ def _build_fix(finding, root):
     if det is not None:
         return det, "deterministic"
     return _draft_patch(finding, root), "LLM"
+
+
+def _fix_strategies(finding, root):
+    """Ordered list of (label, drafter) fix strategies for a finding.
+
+    Deterministic codemods are guaranteed-correct where they exist; model backends
+    (local security model, then cloud) draft everything else and each other's misses.
+    `ORTHOSEC_FIX_ORDER=model-first` puts the models ahead of the deterministic codemod;
+    the default `deterministic-first` is the safest/most-reproducible ordering. Whatever
+    the order, every candidate is re-scan-verified before it's kept (see `_cascade_apply`)."""
+    import os
+    from orthosec.remediation_fix import deterministic_fix, has_deterministic_fix
+
+    deterministic = []
+    if has_deterministic_fix(finding):
+        deterministic.append(("deterministic", lambda src: deterministic_fix(finding, src)))
+
+    models = []
+    try:
+        from orthosec.intel.autofix import suggest_patch
+        from orthosec.intel import local_backend
+        from orthosec.intel.narrative import _resolve_cloud_client_and_model
+        if local_backend.enabled():
+            lc, lm = local_backend.resolve()
+            if lc is not None:
+                models.append((f"model:local ({lm})", lambda src, c=lc, m=lm: suggest_patch(finding, src, c, m)))
+        cc, cm = _resolve_cloud_client_and_model()
+        if cc is not None:
+            models.append((f"model:cloud ({cm})", lambda src, c=cc, m=cm: suggest_patch(finding, src, c, m)))
+    except Exception:
+        pass
+
+    order = (os.environ.get("ORTHOSEC_FIX_ORDER") or "deterministic-first").strip().lower()
+    return (models + deterministic) if order == "model-first" else (deterministic + models)
+
+
+def _cascade_apply(finding, root, prev_result, pre_fps_for_file, verify):
+    """Try each fix strategy in order; re-scan after each; keep the first that resolves the
+    finding without introducing a HIGH/critical regression, otherwise revert and fall back.
+    This is the auto-catch: a fix that doesn't verify is undone, not shipped."""
+    from pathlib import Path
+    from orthosec.core.finding import Severity
+    fpath = Path(root) / finding.file
+    if not fpath.is_file():
+        return {"status": "nofile", "tried": []}
+    original = fpath.read_text(encoding="utf-8", errors="replace")
+    backup = Path(str(fpath) + ".orig")
+    tried, backed_up = [], False
+
+    for label, drafter in _fix_strategies(finding, root):
+        try:
+            candidate = drafter(original)
+        except Exception:
+            candidate = None
+        if not candidate or candidate == original:
+            continue
+        tried.append(label)
+        if not backed_up:
+            backup.write_text(original, encoding="utf-8")
+            backed_up = True
+        fpath.write_text(candidate, encoding="utf-8")
+
+        if not verify:
+            return {"status": "applied", "strategy": label, "new": [], "tried": tried}
+        resolved, new = _verify_fix(prev_result, root, finding, pre_fps_for_file)
+        new_high = [x for x in new if x.severity in (Severity.CRITICAL, Severity.HIGH)]
+        if resolved and not new_high:
+            return {"status": "resolved", "strategy": label, "new": new, "tried": tried}
+        fpath.write_text(original, encoding="utf-8")     # revert; try the next strategy
+
+    if backed_up and fpath.read_text(encoding="utf-8", errors="replace") == original:
+        try:
+            backup.unlink()                              # nothing kept — drop the backup
+        except OSError:
+            pass
+    return {"status": "failed", "tried": tried}
+
+
+def _print_cascade(rec):
+    status = rec["status"]
+    if status == "resolved":
+        print(f"    ✓ fixed via {rec['strategy']} — re-scan confirms RESOLVED (backup: *.orig)")
+        for x in rec.get("new", []):
+            print(f"    ! re-scan: new {x.severity.name} finding at {x.location} ({x.rule_id})")
+    elif status == "applied":
+        print(f"    • applied via {rec['strategy']} (verification skipped) — backup: *.orig")
+    elif status == "nofile":
+        print("    [skipped: file not found]")
+    else:
+        tried = ", ".join(rec.get("tried", [])) or "none produced a patch"
+        print(f"    ✗ auto-fix could not verify a safe fix — reverted. Tried: {tried}")
 
 
 def _verify_fix(prev_result, root, finding, pre_fps_for_file):

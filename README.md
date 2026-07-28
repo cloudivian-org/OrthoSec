@@ -190,7 +190,13 @@ python -m orthosec.cli remediate ./my-ai-app --rule ORTHO-SUPPLY-001 --auto     
 | Provenance | untrusted RAG ingestion (LLM08) | manual |
 | Secret Rotation | committed credentials (LLM02) | manual |
 
-For well-understood cases (`torch.load` → `weights_only=True`, `yaml.load` → `yaml.safe_load`) auto-fix applies a **deterministic, LLM-free** one-line edit — no API key, fully reproducible. Everything else falls back to an intel-layer-drafted patch — which can run on a **local security model** (Foundation-Sec-8B via `ORTHOSEC_LOCAL_MODEL_URL`) so patches are drafted entirely on your machine. Either way OrthoSec backs up the original to `*.orig`, applies the fix, then **re-scans to verify the finding is resolved** and flags any new finding the patch introduced (`--no-verify` to skip). Rotation and source-trust decisions stay manual by design. Design contract: the deterministic layer decides **what** is wrong and the plan; the LLM only drafts the **patch**, never invents findings.
+**`--auto` runs a verify-gated cascade.** For each finding OrthoSec tries fix strategies **in order — and re-scans after every attempt**: a candidate is kept only if the re-scan confirms the finding is **resolved with no new HIGH/critical regression**; otherwise it's **reverted** and the next strategy runs. The strategies:
+
+1. **Deterministic codemod** — for well-understood cases (`torch.load` → `weights_only=True`, `yaml.load` → `yaml.safe_load`): an LLM-free, reproducible, no-API-key edit.
+2. **Local security model** — a patch drafted by a model you run yourself (Foundation-Sec-8B via `ORTHOSEC_LOCAL_MODEL_URL`), on your machine.
+3. **Cloud model** — falls back to Anthropic / Azure if configured.
+
+The **re-scan is the auto-catch**: a fix that doesn't actually verify is undone, not shipped. Set `ORTHOSEC_FIX_ORDER=model-first` to try the models ahead of the deterministic codemod (default `deterministic-first` is the most reproducible). The original is backed up to `*.orig` only when a fix is kept; `--no-verify` skips the re-scan. Rotation and source-trust decisions stay manual by design. **Design contract:** the deterministic layer decides **what** is wrong and the plan; models only draft the **patch**, every patch is re-scan-verified, and nothing invents a finding.
 
 ## Integrate with any AI product
 
@@ -366,6 +372,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ANTHROPIC_API_KEY` | intel / report / `ask` | Enable the executive briefing + Q&A via Anthropic. Model = `ORTHOSEC_MODEL` (default `claude-opus-4-8`) |
 | `AZURE_API_KEY` + `AZURE_BASE_URL` + `AZURE_MODELS` | intel | Use Azure AI Foundry (Claude via the Anthropic Messages API) — auto-selected when set |
 | `ORTHOSEC_LOCAL_MODEL_URL` | intel / remediation | Use a **local** OpenAI-compatible model (e.g. Foundation-Sec-8B via Ollama) for briefing / `ask` / `remediate --auto` — highest precedence, offline. With `ORTHOSEC_LOCAL_MODEL` · `ORTHOSEC_LOCAL_API_KEY` · `ORTHOSEC_LOCAL_TIMEOUT` |
+| `ORTHOSEC_FIX_ORDER` | remediate | `deterministic-first` (default) or `model-first` — order of the verify-gated auto-fix cascade (deterministic codemod · local model · cloud model) |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |
