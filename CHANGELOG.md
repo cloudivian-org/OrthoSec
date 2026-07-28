@@ -4,6 +4,25 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.11.2] — 2026-07-25
+
+### Added
+- **Model-led discovery (`ORTHOSEC_DISCOVER=1`).** A model surfaces *additional* candidate
+  findings the pattern/dataflow engine can't see — logic flaws, auth/authz gaps, weak
+  crypto, timing attacks, SSRF. These are always **`advisory`**: labelled `model-discovery`
+  (`MODEL-DISC-001`), **deduped** against deterministic findings (±2 lines), **excluded
+  from the posture score and the `--fail-on` gate** (opt in with `ORTHOSEC_DISCOVER_GATE=1`),
+  and confidence 0.5. So models lead discovery for recall while the deterministic set stays
+  the reproducible, gated source of truth. Opt-in, capped (`ORTHOSEC_DISCOVER_MAX_FILES`,
+  default 8; files ≤24 KB), fail-open. `orthosec/intel/triage.py::discover`,
+  `tests/test_triage.py` now 12 tests.
+  - `by_severity` and `posture_score` now exclude advisory findings; `_exit_code` skips
+    them unless `ORTHOSEC_DISCOVER_GATE`. The console shows a `+ N advisory (not scored)`
+    line and an `~advisory` badge.
+  - Demoed live: on an auth file with no LLM-dataflow issues (score 100/A) the model found
+    4 real issues (MD5 hashing, non-constant-time compare, client-trusted `is_admin` admin
+    bypass) — all advisory, score unchanged.
+
 ## [0.11.1] — 2026-07-25
 
 ### Added

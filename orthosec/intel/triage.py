@@ -109,3 +109,126 @@ def corroborate(findings, root: str) -> None:
             # Deterministic result stands — only surface the model's doubt for a human.
             f.metadata["model_confidence"] = f"model flagged as possible false positive: {reason}"
         # "uncertain" -> leave tier as deterministic, no note
+
+
+# --------------------------------------------------------------------------- #
+# Model-led DISCOVERY — surface additional candidate findings the deterministic
+# engine missed. These are ALWAYS advisory: clearly labelled, excluded from the
+# posture score and the --fail-on gate, and deduped against deterministic findings.
+# The deterministic set is never touched. Opt-in, capped, fail-open.
+# --------------------------------------------------------------------------- #
+
+_CODE_EXT = {".py", ".ts", ".tsx", ".jsx", ".js", ".go", ".java", ".kt", ".cs", ".rb", ".php", ".rs"}
+_SKIP_DIRS = {"node_modules", ".git", "vendor", "dist", "build", "__pycache__", ".venv", "venv"}
+
+_DISCOVER_SYSTEM = (
+    "You are a security reviewer. Find real, code-grounded security vulnerabilities in the "
+    "file below that a pattern-based static analyzer might MISS (logic flaws, auth/authz "
+    "gaps, unsafe data flows, injection, SSRF, insecure crypto, secrets). Do not invent "
+    "issues. Return ONLY a JSON array; each item: "
+    '{"title": "...", "line": <int>, "severity": "critical|high|medium|low", '
+    '"owasp": "LLM0X or empty", "evidence": "the offending code", "fix": "one sentence"}. '
+    "Return [] if there is nothing real."
+)
+
+
+def discover_enabled() -> bool:
+    return (os.environ.get("ORTHOSEC_DISCOVER", "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _discover_max_files() -> int:
+    try:
+        return int(os.environ.get("ORTHOSEC_DISCOVER_MAX_FILES", "8"))
+    except ValueError:
+        return 8
+
+
+def _code_files(root: str, limit: int):
+    picked = []
+    for dp, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        for fn in files:
+            if Path(fn).suffix.lower() in _CODE_EXT:
+                p = Path(dp) / fn
+                try:
+                    if 0 < p.stat().st_size <= 24_000:      # skip empty / very large files
+                        picked.append(p)
+                except OSError:
+                    pass
+    picked.sort(key=lambda p: p.stat().st_size)             # cheapest first, deterministic order
+    return picked[:limit]
+
+
+def _sev(name: str):
+    from orthosec.core.finding import Severity
+    return {"critical": Severity.CRITICAL, "high": Severity.HIGH,
+            "medium": Severity.MEDIUM, "low": Severity.LOW}.get(str(name).strip().lower(), Severity.MEDIUM)
+
+
+def _near_existing(existing_by_file, relpath, line) -> bool:
+    for ln in existing_by_file.get(relpath, ()):
+        if abs(ln - line) <= 2:                             # already covered deterministically
+            return True
+    return False
+
+
+def discover(root: str, existing) -> list:
+    """Return advisory (model-discovered) Findings not already covered deterministically.
+    No-op when disabled or no model backend. Never raises (fails open)."""
+    if not discover_enabled():
+        return []
+    try:
+        from orthosec.intel.narrative import _resolve_client_and_model, _call, _text_of
+        from orthosec.core.finding import Finding
+        client, model = _resolve_client_and_model()
+    except Exception:
+        return []
+    if client is None:
+        return []
+
+    existing_by_file: dict = {}
+    for f in existing:
+        existing_by_file.setdefault(f.file, set()).add(f.line)
+
+    out = []
+    rootp = Path(root)
+    for p in _code_files(root, _discover_max_files()):
+        try:
+            src = p.read_text(encoding="utf-8", errors="replace")
+            rel = str(p.relative_to(rootp)) if rootp in p.parents or p == rootp else p.name
+            prompt = f"FILE: {rel}\n```\n{src[:12000]}\n```\n"
+            resp = _call(client, model, prompt, system=_DISCOVER_SYSTEM, max_tokens=1200)
+            items = _parse_items(_text_of(resp))
+        except Exception:
+            continue                                        # fail open per file
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            try:
+                line = int(it.get("line") or 0)
+            except (TypeError, ValueError):
+                line = 0
+            if _near_existing(existing_by_file, rel, line):
+                continue
+            title = str(it.get("title") or "").strip()[:120]
+            if not title:
+                continue
+            out.append(Finding(
+                detector="model-discovery", rule_id="MODEL-DISC-001",
+                title=title, severity=_sev(it.get("severity")),
+                owasp_llm=str(it.get("owasp") or "").strip(), atlas=[],
+                file=rel, line=line, evidence=str(it.get("evidence") or "").strip()[:200],
+                remediation=str(it.get("fix") or "Review this candidate issue.").strip()[:300],
+                confidence=0.5, confidence_tier="advisory",
+                metadata={"engine": "model-discovery", "model": model},
+            ))
+    return out
+
+
+def _parse_items(text: str) -> list:
+    try:
+        start, end = text.index("["), text.rindex("]") + 1
+        obj = json.loads(text[start:end])
+        return obj if isinstance(obj, list) else []
+    except (ValueError, json.JSONDecodeError):
+        return []

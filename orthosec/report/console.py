@@ -57,8 +57,11 @@ def render(result: ScanResult, exec_summary: str | None = None,
             if sev.name in counts:
                 parts.append(_c(f"{counts[sev.name]} {sev.name.lower()}", _C[sev]))
         out.append("  " + "   ".join(parts))
-    else:
+    elif not any(getattr(f, "confidence_tier", "") == "advisory" for f in result.findings):
         out.append(_c("  No findings. Clean scan.", "\033[32m"))
+    n_adv = sum(1 for f in result.findings if getattr(f, "confidence_tier", "") == "advisory")
+    if n_adv:
+        out.append(_c(f"  + {n_adv} advisory (model-discovered — not scored, review only)", "\033[33m"))
     out.append("")
 
     shown = [f for f in result.findings if f.severity.value >= profile.severity_floor.value]

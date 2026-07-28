@@ -73,8 +73,12 @@ class ScanResult:
     errors: list[str] = field(default_factory=list)
 
     def by_severity(self) -> dict[str, int]:
+        # Advisory (model-discovered, unconfirmed) findings are shown separately and don't
+        # count toward the trusted severity tally or the reproducible posture score.
         out: dict[str, int] = {}
         for f in self.findings:
+            if getattr(f, "confidence_tier", "deterministic") == "advisory":
+                continue
             out[f.severity.name] = out.get(f.severity.name, 0) + 1
         return out
 

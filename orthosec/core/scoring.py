@@ -25,7 +25,11 @@ _DECAY = 0.6
 
 
 def posture_score(findings: list[Finding]) -> int:
-    """Return an integer 0..100. 100 == no findings."""
+    """Return an integer 0..100. 100 == no findings.
+
+    Advisory (model-discovered, unconfirmed) findings are excluded so the score stays a
+    deterministic, reproducible function of the trusted finding set."""
+    findings = [f for f in findings if getattr(f, "confidence_tier", "deterministic") != "advisory"]
     if not findings:
         return 100
 

@@ -259,6 +259,15 @@ finding and never invents one — the deterministic engine stays the arbiter, so
 model insight without losing the 0-FP guarantee. Fails open (model down → plain
 deterministic results).
 
+**Model-led discovery (optional).** With `ORTHOSEC_DISCOVER=1` a model also surfaces
+*additional* candidate issues the pattern/dataflow engine can't see — logic flaws,
+auth/authz gaps, weak crypto, timing attacks. These are always **`advisory`**: clearly
+labelled, **deduped** against deterministic findings, and **excluded from the posture
+score and the `--fail-on` gate** (they never fail your build unless you opt in with
+`ORTHOSEC_DISCOVER_GATE=1`). So models *lead discovery* for recall while the deterministic
+set stays your reproducible, gated source of truth — the two coexist without one
+contaminating the other.
+
 ### Nine languages, same depth
 
 Python uses the stdlib `ast`; every other language uses **tree-sitter** (JavaScript uses esprima), each an optional extra. Without a language's extra, its files fall back to regex automatically — no crash.
@@ -384,6 +393,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_LOCAL_MODEL_URL` | intel / remediation | Use a **local** OpenAI-compatible model (e.g. Foundation-Sec-8B via Ollama) for briefing / `ask` / `remediate --auto` — highest precedence, offline. With `ORTHOSEC_LOCAL_MODEL` · `ORTHOSEC_LOCAL_API_KEY` · `ORTHOSEC_LOCAL_TIMEOUT` |
 | `ORTHOSEC_FIX_ORDER` | remediate | `deterministic-first` (default) or `model-first` — order of the verify-gated auto-fix cascade (deterministic codemod · local model · cloud model) |
 | `ORTHOSEC_CONFIDENCE` · `ORTHOSEC_CONFIDENCE_MAX` | scan | `1` enables model corroboration of findings → confidence tiers (`confirmed`/`deterministic`); max findings to corroborate (default 40). Needs a model backend |
+| `ORTHOSEC_DISCOVER` · `ORTHOSEC_DISCOVER_MAX_FILES` · `ORTHOSEC_DISCOVER_GATE` | scan | `1` enables model-led discovery of extra `advisory` findings (max files, default 8); `_GATE=1` lets advisory findings fail `--fail-on` (default: they don't). Needs a model backend |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |

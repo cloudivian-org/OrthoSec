@@ -187,6 +187,12 @@ def _run_scan(args) -> int:
     from orthosec.intel import triage   # optional model-backed confidence tiering (opt-in)
     if triage.enabled():
         triage.corroborate(result.findings, result.root)
+    if triage.discover_enabled():      # optional model-led discovery — advisory-tier only
+        extra = triage.discover(result.root, result.findings)
+        if extra:
+            annotate_findings(extra)
+            assign(extra)
+            result.findings.extend(extra)
 
     if args.write_baseline:
         fps = sorted({f.fingerprint for f in result.findings})
@@ -633,7 +639,12 @@ def _exit_code(result, fail_on: str) -> int:
     if fail_on == "none":
         return 0
     threshold = _ORDER.get(fail_on, _ORDER["high"])
-    worst = max((f.severity.value for f in result.findings), default=0)
+    # Advisory (model-discovered) findings don't fail the build unless explicitly opted in —
+    # the hard gate stays a function of the deterministic/confirmed set.
+    gate_advisory = _env_true("ORTHOSEC_DISCOVER_GATE")
+    worst = max((f.severity.value for f in result.findings
+                 if gate_advisory or getattr(f, "confidence_tier", "deterministic") != "advisory"),
+                default=0)
     return 1 if worst >= threshold else 0
 
 

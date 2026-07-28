@@ -96,6 +96,58 @@ class TestCorroborate(unittest.TestCase):
             self.assertEqual(f.confidence_tier, "deterministic")
 
 
+class TestDiscover(unittest.TestCase):
+    """Model-led discovery: advisory-only, deduped, excluded from score & gate, fail-open."""
+
+    def _repo(self):
+        import tempfile
+        from pathlib import Path
+        d = tempfile.mkdtemp()
+        Path(d, "svc.py").write_text("def handler(req):\n    role = req.get('role')\n"
+                                     "    if role == 'admin':\n        do_admin()\n")
+        return d
+
+    def test_disabled_by_default(self):
+        with _Env(ORTHOSEC_DISCOVER=None):
+            self.assertFalse(triage.discover_enabled())
+            self.assertEqual(triage.discover(self._repo(), []), [])
+
+    def test_surfaces_advisory_findings(self):
+        items = ('[{"title":"Broken access control","line":3,"severity":"high",'
+                 '"owasp":"","evidence":"if role==admin","fix":"verify server-side"}]')
+        with _Env(ORTHOSEC_DISCOVER="1"), _Mock(items):
+            found = triage.discover(self._repo(), [])
+        self.assertEqual(len(found), 1)
+        f = found[0]
+        self.assertEqual(f.detector, "model-discovery")
+        self.assertEqual(f.confidence_tier, "advisory")
+        self.assertEqual(f.severity.name, "HIGH")
+
+    def test_dedup_against_existing(self):
+        from orthosec.core.finding import Finding, Severity
+        items = '[{"title":"dup","line":3,"severity":"high","evidence":"x","fix":"y"}]'
+        existing = [Finding(detector="d", rule_id="R", title="t", severity=Severity.HIGH,
+                            owasp_llm="LLM05", atlas=[], file="svc.py", line=3,
+                            evidence="e", remediation="r")]
+        with _Env(ORTHOSEC_DISCOVER="1"), _Mock(items):
+            found = triage.discover(self._repo(), existing)  # line 3 already covered -> skipped
+        self.assertEqual(found, [])
+
+    def test_fail_open(self):
+        with _Env(ORTHOSEC_DISCOVER="1"), _Mock("", raise_on_call=True):
+            self.assertEqual(triage.discover(self._repo(), []), [])   # no raise
+
+    def test_advisory_excluded_from_score(self):
+        from orthosec.core.scoring import posture_score
+        from orthosec.core.finding import Finding, Severity
+        det = Finding(detector="d", rule_id="R", title="t", severity=Severity.HIGH,
+                      owasp_llm="LLM05", atlas=[], file="a.py", line=1, evidence="e", remediation="r")
+        adv = Finding(detector="model-discovery", rule_id="MODEL-DISC-001", title="t2",
+                      severity=Severity.CRITICAL, owasp_llm="", atlas=[], file="b.py", line=2,
+                      evidence="e", remediation="r", confidence_tier="advisory")
+        self.assertEqual(posture_score([det]), posture_score([det, adv]))  # advisory doesn't move score
+
+
 class TestParseVerdict(unittest.TestCase):
     def test_json_and_fallback(self):
         self.assertEqual(triage._parse_verdict('{"verdict":"confirmed","reason":"x"}')[0], "confirmed")
