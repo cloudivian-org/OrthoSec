@@ -70,27 +70,38 @@ def scan_prompt(text: str) -> GuardResult:
     recall but never removes a regex signal, and it fails open (a model error leaves
     the regex result untouched)."""
     res = _scan(text, _INJECTION, "prompt")
-    verdict = _model_verdict(text)
-    if verdict is not None and verdict.is_injection:
+    return _augment(res, text, "prompt")
+
+
+def _augment(res: GuardResult, text: str, where: str) -> GuardResult:
+    """Add an optional model-backed signal to a deterministic result. Additive only —
+    it never removes a regex hit, and fails open (a model error leaves `res` untouched)."""
+    verdict = _model_verdict(text, where)
+    if verdict is not None and verdict.flagged:
         res.risks.append(f"model:{verdict.label} ({verdict.model or 'model'} {verdict.score:.2f})")
         res.ok = False
     return res
 
 
-def _model_verdict(text: str):
+def _model_verdict(text: str, where: str):
     """Optional model-backed verdict; returns None when disabled or on any error."""
     try:
         from orthosec import model_guard
-        if not model_guard.enabled():
-            return None
-        return model_guard.classify(text)
+        if where == "output":
+            return model_guard.classify_output(text) if model_guard.output_enabled() else None
+        return model_guard.classify(text) if model_guard.enabled() else None
     except Exception:
         return None
 
 
 def scan_output(text: str) -> GuardResult:
-    """Heuristically scan model output for leaks / executable payloads before use."""
-    return _scan(text, _OUTPUT_RISK, "output")
+    """Heuristically scan model output for leaks / executable payloads before use.
+
+    Like `scan_prompt`, an optional local model backend (`ORTHOSEC_OUTPUT_MODEL_URL` —
+    e.g. Llama Guard or a PII/leak classifier) can *add* a signal for sensitive-data or
+    unsafe content the regex misses. Additive and fail-open — never removes a regex hit."""
+    res = _scan(text, _OUTPUT_RISK, "output")
+    return _augment(res, text, "output")
 
 
 def guard(mode: str = "monitor", prompt_arg: str | int | None = None, on_risk=None):

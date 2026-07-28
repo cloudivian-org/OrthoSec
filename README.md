@@ -292,7 +292,13 @@ export ORTHOSEC_GUARD_MODEL=llama-guard3
 # or a Prompt Guard classifier server: KIND=classifier, URL=its /predict route
 ```
 
-Deterministic detectors and the static scan are unaffected — this only enriches the runtime `scan_prompt` / `@guard` / `proxy` path. See the env table below for all `ORTHOSEC_GUARD_MODEL_*` options.
+The **output side** works the same way, with its own independent backend
+(`ORTHOSEC_OUTPUT_MODEL_URL`, …): point it at Llama Guard or a **PII / secret-leak
+classifier** to catch sensitive data or unsafe content in *model output* before it
+reaches a user or a downstream sink. Same guarantees — additive, fail-open, deterministic
+regex always runs underneath.
+
+Deterministic detectors and the static scan are unaffected — this only enriches the runtime `scan_prompt` / `scan_output` / `@guard` / `proxy` path. See the env table below for all `ORTHOSEC_GUARD_MODEL_*` / `ORTHOSEC_OUTPUT_MODEL_*` options.
 
 **Node / TypeScript** apps get the same guard via [`@orthosec/guard`](sdk/js) (zero deps):
 
@@ -372,6 +378,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_GUARD_MODEL_URL` | guard / proxy | Enable the optional local model-backed injection check (endpoint to POST to) |
 | `ORTHOSEC_GUARD_MODEL_KIND` · `ORTHOSEC_GUARD_MODEL` | guard | Endpoint shape (`classifier`/`ollama`/`openai`) + model name |
 | `ORTHOSEC_GUARD_THRESHOLD` · `ORTHOSEC_GUARD_TIMEOUT` · `ORTHOSEC_GUARD_API_KEY` | guard | Score threshold (0.5), per-call timeout (4s), optional bearer token |
+| `ORTHOSEC_OUTPUT_MODEL_URL` (+ `_KIND`/`_MODEL`/`_THRESHOLD`/`_TIMEOUT`/`_API_KEY`) | guard | Output-side model backend — PII / secret-leak / safety check on model output (same shapes as the input guard, independent config) |
 | `ORTHOSEC_GIT_TOKEN` · `GITHUB_TOKEN` · `GH_TOKEN` · `GITLAB_TOKEN` | scan | Token for cloning a **private** repo (never logged; see `--git-token-stdin`) |
 
 > The deterministic core needs no keys and no network — an LLM key only unlocks the executive narrative + `ask`. Without one, the report still renders posture, `$`-risk, and compliance from the deterministic findings.

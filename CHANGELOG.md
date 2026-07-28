@@ -4,6 +4,20 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.10.4] — 2026-07-25
+
+### Added
+- **Output-side runtime guard (model-backed) — symmetric to the prompt guard.**
+  `scan_output` / `@guard` / `proxy` can now consult an optional local model to catch
+  **sensitive data (PII, secrets, credentials) or unsafe content in model output** before
+  it reaches a user or a downstream sink — Llama Guard via Ollama, a PII/leak classifier,
+  or any OpenAI-compatible endpoint. Independent config: `ORTHOSEC_OUTPUT_MODEL_URL`
+  (+ `_KIND`/`_MODEL`/`_THRESHOLD`/`_TIMEOUT`/`_API_KEY`). Same guarantees as the input
+  guard — **opt-in, additive, fail-open**: the model only *adds* a signal, never removes a
+  deterministic regex hit, and any error degrades to regex so a guarded call is never
+  broken. `model_guard.py` refactored to a shared classifier core (`ModelVerdict.flagged`);
+  `tests/test_model_guard.py` now 16 tests (input + output).
+
 ## [0.10.3] — 2026-07-25
 
 ### Added
