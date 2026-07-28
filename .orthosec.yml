@@ -1,0 +1,9 @@
+# OrthoSec project config for scanning THIS repo (dogfooding via .github/workflows/orthosec.yml).
+# These directories contain code that is intentionally vulnerable or is test scaffolding —
+# excluded so a self-scan reflects the product source, not the fixtures.
+exclude:
+  - examples
+  - benchmark
+  - tests
+  - sdk
+profile: appsec

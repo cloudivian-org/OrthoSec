@@ -54,7 +54,9 @@ jobs:
       name: pypi
       url: https://pypi.org/project/orthosec/
     permissions:
-      id-token: write   # mint the OIDC token PyPI trusts; no password/secret needed
+      id-token: write      # OIDC: PyPI trusted publishing + PEP 740 attestations (no token)
+      contents: write      # attach the built artifacts to the GitHub Release
+      attestations: write  # SLSA build-provenance attestation
     steps:
       - uses: actions/checkout@v4
 
@@ -67,5 +69,16 @@ jobs:
           python -m pip install --upgrade build
           python -m build
 
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
+
+      - name: Attach artifacts to the GitHub Release
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Trusted Publishing (OIDC) + PEP 740 attestations (default on with id-token).
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

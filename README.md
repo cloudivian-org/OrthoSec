@@ -3,14 +3,12 @@
 Technical AI-risk analysis with executive business context. Open source.</p>
 
 <p align="center">
+  <a href="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml"><img src="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/orthosec/"><img src="https://img.shields.io/pypi/v/orthosec?color=2ea44f" alt="PyPI version"></a>
   <img src="https://img.shields.io/pypi/pyversions/orthosec" alt="Python versions">
   <img src="https://img.shields.io/badge/OWASP%20LLM%20Top--10-10%2F10-2ea44f" alt="OWASP LLM Top-10 coverage">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
 </p>
-<!-- CI badge + live-demo link re-added once the org GitHub Actions billing lock is cleared:
-  <a href="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml"><img src="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
--->
 
 <p align="center">
   <img src="docs/orthosec-compare.png" alt="A typical scanner's 51 false alarms versus OrthoSec's one real, traced finding" width="840">
@@ -155,8 +153,7 @@ python -m orthosec.cli scan ./my-ai-app --html report.html
 
 **Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. A stacked severity bar and an OWASP LLM Top-10 coverage strip summarize posture at a glance, each dataflow finding shows its **taint path** (`source → sink`) and a **confidence** level, and a Print / Save-as-PDF button exports it. Open it in a browser, attach it to a ticket, or drop it in a board deck.
 
-<!-- Live sample report goes live once the GitHub Pages workflow can run (org Actions billing):
-**[▶ View a live sample report →](https://cloudivian-org.github.io/OrthoSec/)** -->
+**[▶ View a live sample report →](https://cloudivian-org.github.io/OrthoSec/)** (published by the Pages workflow from the bundled demo)
 Generate the report locally: `orthosec scan examples/vulnerable-agent` opens `orthosec-report.html`.
 
 ## Scheduling — continuous & daily reports

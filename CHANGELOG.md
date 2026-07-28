@@ -4,6 +4,18 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### CI / release hardening
+- **CI now enforced.** `ci.yml` runs the test suite + benchmark (`--check` gate, was
+  missing) on Python 3.9–3.12 for every push and PR; CI badge re-enabled in the README.
+- **Supply-chain-hardened releases.** `release.yml` adds a **SLSA build-provenance
+  attestation** (`actions/attest-build-provenance`) for the wheel/sdist, attaches the
+  artifacts to the GitHub Release, and publishes to PyPI via **Trusted Publishing (OIDC)**
+  with **PEP 740 attestations** — no stored token. Container image still published to GHCR.
+- **Self-scan (dogfooding).** `orthosec.yml` scans OrthoSec itself and uploads SARIF to code
+  scanning; a repo `.orthosec.yml` excludes the intentional-vuln fixtures (examples,
+  benchmark, tests) and the self-scan runs `fail-on: none` (a scanner's own detector code
+  contains the patterns it matches). Live sample report (Pages) re-enabled.
+
 ## [0.11.3] — 2026-07-25
 
 ### Changed — accuracy at scale (validation)

@@ -1,6 +1,6 @@
 # Runs the test suite + detection benchmark on every push and PR.
 # Free and unlimited on public repos. This is the green check behind the
-# "98 tests, 100% / 0 FP" claim — keep it passing before every release.
+# "100% precision / recall, 0 FP" benchmark claim — keep it passing before every release.
 name: CI
 
 on:
@@ -31,4 +31,4 @@ jobs:
         run: pytest -q
 
       - name: "Detection-efficacy benchmark (gate 100% / 0 FP)"
-        run: python benchmark/run.py
+        run: python benchmark/run.py --check
