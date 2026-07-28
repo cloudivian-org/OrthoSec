@@ -4,6 +4,29 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-07-25
+
+### Added
+- **Optional model-backed prompt-injection check for the runtime guard (experimental,
+  opt-in, local-first).** `scan_prompt` / `@guard` / `proxy` can call a model you run
+  yourself — Meta Prompt Guard (classifier), Llama Guard via Ollama, or any
+  OpenAI-compatible endpoint — to raise recall on novel injections
+  (`orthosec/model_guard.py`). Enabled only when `ORTHOSEC_GUARD_MODEL_URL` is set;
+  configured via `ORTHOSEC_GUARD_MODEL_KIND` (`classifier`/`ollama`/`openai`),
+  `ORTHOSEC_GUARD_MODEL`, `ORTHOSEC_GUARD_THRESHOLD`, `ORTHOSEC_GUARD_TIMEOUT`,
+  `ORTHOSEC_GUARD_API_KEY`. **Additive and fail-open by design:** the model can only add a
+  signal — it never removes a deterministic regex hit, never becomes a source of a static
+  finding, and any error/timeout degrades silently to regex so a guarded call is never
+  broken. Stdlib-only (no new dependencies). `tests/test_model_guard.py` (10 tests). This
+  is the first step of integrating security-specialized OSS models while preserving the
+  deterministic-core trust model.
+
+### Fixed
+- **Rust grammar ABI robustness.** `rust_ast.available()` now verifies the grammar actually
+  *parses* (not just imports), so an ABI-mismatched wheel degrades to the regex fallback
+  instead of emitting garbage findings. `tree-sitter-rust` pinned `<0.23.3` (0.23.3+ require
+  a newer tree-sitter core than the floor).
+
 ## [0.10.0] — 2026-07-25
 
 ### Added

@@ -41,11 +41,21 @@ _CACHE: dict = {}
 
 
 def available() -> bool:
+    """True only if the grammar imports AND actually parses. A grammar wheel whose ABI
+    doesn't match the installed tree-sitter core imports fine but parses to garbage —
+    verifying a trivial parse here makes that case degrade to the regex fallback instead
+    of emitting nonsense findings."""
+    if "avail" in _CACHE:
+        return _CACHE["avail"]
+    ok = False
     try:
         import tree_sitter, tree_sitter_rust  # noqa: F401
-        return True
+        root = _parse("fn __orthosec_probe__() {}")
+        ok = root is not None and any(n.type == "function_item" for n in _walk(root))
     except Exception:
-        return False
+        ok = False
+    _CACHE["avail"] = ok
+    return ok
 
 
 def _parser():

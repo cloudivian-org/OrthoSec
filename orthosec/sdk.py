@@ -63,8 +63,29 @@ def _scan(text: str, rules, where: str) -> GuardResult:
 
 
 def scan_prompt(text: str) -> GuardResult:
-    """Heuristically scan untrusted input / a rendered prompt for injection."""
-    return _scan(text, _INJECTION, "prompt")
+    """Heuristically scan untrusted input / a rendered prompt for injection.
+
+    Deterministic regex is always applied. If an optional local model backend is
+    configured (see `orthosec.model_guard`), its verdict is *added* — it can raise
+    recall but never removes a regex signal, and it fails open (a model error leaves
+    the regex result untouched)."""
+    res = _scan(text, _INJECTION, "prompt")
+    verdict = _model_verdict(text)
+    if verdict is not None and verdict.is_injection:
+        res.risks.append(f"model:{verdict.label} ({verdict.model or 'model'} {verdict.score:.2f})")
+        res.ok = False
+    return res
+
+
+def _model_verdict(text: str):
+    """Optional model-backed verdict; returns None when disabled or on any error."""
+    try:
+        from orthosec import model_guard
+        if not model_guard.enabled():
+            return None
+        return model_guard.classify(text)
+    except Exception:
+        return None
 
 
 def scan_output(text: str) -> GuardResult:

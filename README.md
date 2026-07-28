@@ -274,6 +274,18 @@ if not scan_prompt(user_input).ok:
 
 `mode="monitor"` reports via `on_risk` and never raises; `mode="block"` raises `PromptInjectionError` on an injection hit before the call. Output is scanned for credential leaks and executable payloads. A runtime tripwire — pair it with the static scanner and least-privilege tools.
 
+**Optional local model backend (experimental).** The guard's prompt-injection check is deterministic regex by default. Point it at a **model you run yourself** — Meta Prompt Guard, Llama Guard via Ollama, or any OpenAI-compatible endpoint — to raise recall on novel injections. It's **opt-in, local-first, and fails open**: the model can only *add* a signal (never removes a regex hit, never becomes a static finding), and any timeout/error silently degrades to regex — a guarded call is never broken.
+
+```bash
+# e.g. Llama Guard running locally via Ollama
+export ORTHOSEC_GUARD_MODEL_URL=http://localhost:11434/api/chat
+export ORTHOSEC_GUARD_MODEL_KIND=ollama
+export ORTHOSEC_GUARD_MODEL=llama-guard3
+# or a Prompt Guard classifier server: KIND=classifier, URL=its /predict route
+```
+
+Deterministic detectors and the static scan are unaffected — this only enriches the runtime `scan_prompt` / `@guard` / `proxy` path. See the env table below for all `ORTHOSEC_GUARD_MODEL_*` options.
+
 **Node / TypeScript** apps get the same guard via [`@orthosec/guard`](sdk/js) (zero deps):
 
 ```js
@@ -347,6 +359,9 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_FAIL_ON` | scan | Default severity gate for a non-zero exit |
 | `ORTHOSEC_WATCH_EVERY` · `ORTHOSEC_REPORT_DIR` · `ORTHOSEC_CRON` | watch / schedule | Scheduling defaults |
 | `ORTHOSEC_UPSTREAM` | proxy | Provider base URL for the inline gateway |
+| `ORTHOSEC_GUARD_MODEL_URL` | guard / proxy | Enable the optional local model-backed injection check (endpoint to POST to) |
+| `ORTHOSEC_GUARD_MODEL_KIND` · `ORTHOSEC_GUARD_MODEL` | guard | Endpoint shape (`classifier`/`ollama`/`openai`) + model name |
+| `ORTHOSEC_GUARD_THRESHOLD` · `ORTHOSEC_GUARD_TIMEOUT` · `ORTHOSEC_GUARD_API_KEY` | guard | Score threshold (0.5), per-call timeout (4s), optional bearer token |
 | `ORTHOSEC_GIT_TOKEN` · `GITHUB_TOKEN` · `GH_TOKEN` · `GITLAB_TOKEN` | scan | Token for cloning a **private** repo (never logged; see `--git-token-stdin`) |
 
 > The deterministic core needs no keys and no network — an LLM key only unlocks the executive narrative + `ask`. Without one, the report still renders posture, `$`-risk, and compliance from the deterministic findings.
