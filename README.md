@@ -3,12 +3,15 @@
 Technical AI-risk analysis with executive business context. Open source.</p>
 
 <p align="center">
-  <a href="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml"><img src="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/orthosec/"><img src="https://img.shields.io/pypi/v/orthosec?color=2ea44f" alt="PyPI version"></a>
   <img src="https://img.shields.io/pypi/pyversions/orthosec" alt="Python versions">
   <img src="https://img.shields.io/badge/OWASP%20LLM%20Top--10-10%2F10-2ea44f" alt="OWASP LLM Top-10 coverage">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
 </p>
+<!-- CI badge re-enabled once org Actions is on; until then the local pre-commit hook +
+     `python benchmark/run.py --check` is the active gate.
+  <a href="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml"><img src="https://github.com/cloudivian-org/OrthoSec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+-->
 
 <p align="center">
   <img src="docs/orthosec-compare.png" alt="A typical scanner's 51 false alarms versus OrthoSec's one real, traced finding" width="840">
@@ -153,7 +156,8 @@ python -m orthosec.cli scan ./my-ai-app --html report.html
 
 **Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. A stacked severity bar and an OWASP LLM Top-10 coverage strip summarize posture at a glance, each dataflow finding shows its **taint path** (`source → sink`) and a **confidence** level, and a Print / Save-as-PDF button exports it. Open it in a browser, attach it to a ticket, or drop it in a board deck.
 
-**[▶ View a live sample report →](https://cloudivian-org.github.io/OrthoSec/)** (published by the Pages workflow from the bundled demo)
+<!-- Live sample report goes live once org GitHub Actions / Pages is enabled:
+**[▶ View a live sample report →](https://cloudivian-org.github.io/OrthoSec/)** -->
 Generate the report locally: `orthosec scan examples/vulnerable-agent` opens `orthosec-report.html`.
 
 ## Scheduling — continuous & daily reports
@@ -229,7 +233,7 @@ Any other CI: `docker run --rm -v "$PWD:/scan" orthosec scan /scan --sarif /scan
 | `prompt-hardening` | LLM01 / LLM07 | Untrusted input concatenated into prompts; secrets embedded in system prompts |
 | `secrets` | LLM02 | Hardcoded provider/model API keys |
 | `unsafe-model-load` | LLM03 / LLM04 | pickle / `torch.load` / unsafe deserialization; unpinned model fetches |
-| `dependency-audit` | LLM03 | AI/ML deps in `requirements.txt` / `package.json` that are unpinned or installed from an untrusted source (git/URL/alt index) |
+| `dependency-audit` | LLM03 | AI/ML deps in `requirements.txt` / `package.json` that are unpinned or installed from an untrusted source (git/URL/alt index); with `ORTHOSEC_OSV=1`, also flags pinned deps with **known CVEs** via [OSV.dev](https://osv.dev) |
 | `data-poisoning` | LLM04 | fine-tuning jobs; training on data from untrusted sources |
 | `output-handling` | LLM05 | LLM output flowing unsanitized into eval/shell/SQL/HTML sinks |
 | `tool-exposure` | LLM06 | Over-privileged agent tools (shell, file, HTTP, SQL) with no confirmation gate |
@@ -391,6 +395,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_FIX_ORDER` | remediate | `deterministic-first` (default) or `model-first` — order of the verify-gated auto-fix cascade (deterministic codemod · local model · cloud model) |
 | `ORTHOSEC_CONFIDENCE` · `ORTHOSEC_CONFIDENCE_MAX` | scan | `1` enables model corroboration of findings → confidence tiers (`confirmed`/`deterministic`); max findings to corroborate (default 40). Needs a model backend |
 | `ORTHOSEC_DISCOVER` · `ORTHOSEC_DISCOVER_MAX_FILES` · `ORTHOSEC_DISCOVER_GATE` | scan | `1` enables model-led discovery of extra `advisory` findings (max files, default 8); `_GATE=1` lets advisory findings fail `--fail-on` (default: they don't). Needs a model backend |
+| `ORTHOSEC_OSV` · `ORTHOSEC_OSV_TIMEOUT` | scan | `1` enriches pinned AI/ML deps with **known CVEs** from OSV.dev (deterministic, one network call, fails open); per-call timeout (default 8s) |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |

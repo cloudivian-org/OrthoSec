@@ -4,6 +4,20 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-07-25
+
+### Added
+- **OSV.dev dependency-CVE enrichment (`ORTHOSEC_OSV=1`).** The `dependency-audit` detector
+  now turns "AI/ML dependency pinned to 1.2.3" into "…and 1.2.3 has N known vulnerabilities
+  (GHSA-…, CVE-…, PYSEC-…)" by querying the [OSV.dev](https://osv.dev) database for every
+  pinned AI/ML dependency (`requirements.txt` / `package.json`). New rule `ORTHO-DEP-003`
+  (HIGH) with upgrade guidance. **Deterministic and authoritative** (a public vuln DB, not a
+  model), **opt-in** (one network call — keeps the core scan offline by default), and
+  **fails open** (a network error leaves the deterministic pin/source findings untouched).
+  `orthosec/osv.py` (stdlib-only batch client), `tests/test_osv.py` (7 tests, network mocked).
+  Verified live: `langchain==0.0.100` → 45 advisories, `langchain==0.1.0` → 10, a clean
+  `openai==1.0.0` → none.
+
 ### CI / release hardening
 - **CI now enforced.** `ci.yml` runs the test suite + benchmark (`--check` gate, was
   missing) on Python 3.9–3.12 for every push and PR; CI badge re-enabled in the README.

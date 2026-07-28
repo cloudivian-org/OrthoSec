@@ -61,6 +61,71 @@ class DependencyAuditDetector:
                 yield from self._scan_pip(ctx, path)
             elif name == "package.json":
                 yield from self._scan_npm(ctx, path)
+        # Opt-in OSV.dev CVE enrichment for pinned AI/ML deps (network; fails open).
+        from orthosec import osv
+        if osv.enabled():
+            yield from self._scan_osv(ctx, osv)
+
+    # --- OSV.dev known-vulnerability enrichment -----------------------------
+    def _scan_osv(self, ctx, osv) -> Iterable[Finding]:
+        deps = []   # (ecosystem, name, version, path, lineno, evidence)
+        for path in ctx.files:
+            name = path.name.lower()
+            if re.search(r"requirements.*\.txt$", name) or name == "constraints.txt":
+                deps += self._pip_pinned(ctx, path)
+            elif name == "package.json":
+                deps += self._npm_pinned(ctx, path)
+        if not deps:
+            return
+        results = osv.query([(e, n, v) for e, n, v, _, _, _ in deps])
+        if not results:
+            return
+        for (eco, nm, ver, path, lineno, ev), vulns in zip(deps, results):
+            if not vulns:
+                continue
+            shown = ", ".join(vulns[:6]) + (f" +{len(vulns) - 6} more" if len(vulns) > 6 else "")
+            plural = "y" if len(vulns) == 1 else "ies"
+            yield Finding(
+                detector=self.id, rule_id="ORTHO-DEP-003",
+                title=f"AI/ML dependency '{nm}' {ver} has {len(vulns)} known vulnerabilit{plural} ({shown})",
+                severity=Severity.HIGH, owasp_llm="LLM03", atlas=["AML.T0010", "AML.T0016"],
+                file=ctx.rel(path), line=lineno, evidence=ev.strip()[:200],
+                remediation=(f"Upgrade '{nm}' to a version with no known advisories "
+                             f"(see https://osv.dev/list?ecosystem={eco}&q={nm})."),
+                confidence=0.9, metadata={"osv_ids": vulns, "package": nm, "version": ver},
+            )
+
+    def _pip_pinned(self, ctx, path):
+        out, text = [], ctx.read(path)
+        for lineno, raw in enumerate((text or "").splitlines(), start=1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            pkg = re.split(r"[<>=!~;\[\s]", line, 1)[0]
+            if not _is_ai_pkg(pkg):
+                continue
+            m = re.search(r"==\s*([A-Za-z0-9_.\-+!]+)", line)
+            if m:
+                out.append(("PyPI", pkg, m.group(1), path, lineno, raw))
+        return out
+
+    def _npm_pinned(self, ctx, path):
+        out, text = [], ctx.read(path)
+        try:
+            data = json.loads(text or "")
+        except (ValueError, TypeError):
+            return out
+        lines = (text or "").splitlines()
+        for section in ("dependencies", "devDependencies", "optionalDependencies"):
+            deps = data.get(section)
+            if not isinstance(deps, dict):
+                continue
+            for pkg, spec in deps.items():
+                if not _is_ai_pkg(pkg) or not isinstance(spec, str):
+                    continue
+                if re.match(r"^\d+\.\d+\.\d+([-+].+)?$", spec):   # exact pin only
+                    out.append(("npm", pkg, spec, path, _find_line(lines, pkg), f'"{pkg}": "{spec}"'))
+        return out
 
     # --- pip: requirements*.txt --------------------------------------------
     def _scan_pip(self, ctx, path) -> Iterable[Finding]:
