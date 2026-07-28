@@ -4,6 +4,23 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-07-25
+
+### Added
+- **Confidence tiers for detection (model corroboration).** Every finding now carries a
+  `confidence_tier`: `deterministic` (default — the reproducible, trusted floor). With a
+  model backend configured and `ORTHOSEC_CONFIDENCE=1`, an opt-in pass
+  (`orthosec/intel/triage.py`) asks the model to corroborate each finding against its code
+  context and raises agreed findings to **`confirmed`** (with a reason), or attaches a
+  "possible false positive" note for human review. **Additive by design:** a model can
+  confirm or comment, but never removes or downgrades a deterministic finding and never
+  invents one — the deterministic engine stays the arbiter, preserving the 0-FP guarantee.
+  Fails open (model error → plain deterministic results). Tier is surfaced in the console
+  report, JSON, and SARIF (`confidence-tier` property). `ORTHOSEC_CONFIDENCE_MAX` caps how
+  many findings are corroborated (default 40). `tests/test_triage.py` (7 tests).
+  This is the "models confirm, deterministic decides" half of the finding-side design —
+  models add insight on detection without becoming the arbiter.
+
 ## [0.11.0] — 2026-07-25
 
 ### Added

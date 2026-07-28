@@ -40,6 +40,12 @@ class Finding:
     evidence: str            # the exact snippet / reason
     remediation: str         # concrete fix guidance
     confidence: float = 0.8  # 0..1 detector confidence
+    # How well corroborated: "deterministic" (trusted, reproducible floor — the default for
+    # every detector finding), "confirmed" (an optional model verifier agreed it's real), or
+    # "advisory" (surfaced/flagged by a model but not confirmed by the deterministic engine).
+    # A model can raise a finding to "confirmed" or attach an advisory note — it never removes
+    # a deterministic finding.
+    confidence_tier: str = "deterministic"
 
     # Filled in later by the intel layer. Deterministic core leaves them None.
     business_impact: str | None = None

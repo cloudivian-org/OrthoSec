@@ -184,6 +184,10 @@ def _run_scan(args) -> int:
     from orthosec.remediation import assign
     assign(result.findings)             # attach remediation agent + plan to each finding
 
+    from orthosec.intel import triage   # optional model-backed confidence tiering (opt-in)
+    if triage.enabled():
+        triage.corroborate(result.findings, result.root)
+
     if args.write_baseline:
         fps = sorted({f.fingerprint for f in result.findings})
         with open(args.write_baseline, "w", encoding="utf-8") as fh:

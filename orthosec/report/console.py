@@ -66,8 +66,16 @@ def render(result: ScanResult, exec_summary: str | None = None,
     if profile.show_findings:
         for f in shown:
             tag = _c(f"[{f.severity.name}]", _C[f.severity])
-            out.append(f"  {tag} {_c(f.title, _BOLD)}")
+            tier = ""
+            if f.confidence_tier == "confirmed":
+                tier = _c(" ✓confirmed", "\033[32m")            # deterministic + model agree
+            elif f.confidence_tier == "advisory":
+                tier = _c(" ~advisory", "\033[33m")             # model-surfaced, unconfirmed
+            out.append(f"  {tag}{tier} {_c(f.title, _BOLD)}")
             out.append(f"      {f.location}")
+            note = f.metadata.get("model_confidence") if f.metadata else None
+            if note:
+                out.append(f"      {_c('model: ' + note, _DIM)}")
             out.append(f"      OWASP {f.owasp_llm} ({owasp_name(f.owasp_llm)})"
                        + (f"  ·  ATLAS {', '.join(f.atlas)}" if f.atlas else ""))
             if profile.show_evidence and f.evidence:

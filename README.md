@@ -249,6 +249,16 @@ Behavior detectors **ignore comments and negation** (a `# no confirmation` comme
 
 **Dataflow, not line-proximity.** The three dataflow detectors — untrusted input → system prompt (LLM01), model output → dangerous sink (LLM05), and dangerous sink inside a model-invokable tool (LLM06) — fire only when the *actual* data reaches the *actual* sink. They trace it at any distance: **intra-function → interprocedural (across calls) → cross-module (import-resolved, including re-export chains)**, respecting trust-boundary and sanitizer mitigations. Tracking is **framework-aware** — it recognizes model output from LangChain / LlamaIndex / OpenAI / Anthropic call shapes (`chain.invoke`, `query_engine.query`, `chat.completions.create`, …) and untrusted input from Flask / FastAPI / Django request objects.
 
+**Confidence tiers (optional).** Every finding carries a tier. By default it's
+**`deterministic`** — the reproducible, trusted floor. With a model backend configured and
+`ORTHOSEC_CONFIDENCE=1`, an opt-in pass asks the model to corroborate each finding against
+its code and raises agreed ones to **`confirmed`** (shown with a reason), or attaches a
+"possible false positive" note for a human to review. Crucially, this is **additive**: a
+model can *confirm* or *comment*, but it never removes or downgrades a deterministic
+finding and never invents one — the deterministic engine stays the arbiter, so you gain
+model insight without losing the 0-FP guarantee. Fails open (model down → plain
+deterministic results).
+
 ### Nine languages, same depth
 
 Python uses the stdlib `ast`; every other language uses **tree-sitter** (JavaScript uses esprima), each an optional extra. Without a language's extra, its files fall back to regex automatically — no crash.
@@ -373,6 +383,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `AZURE_API_KEY` + `AZURE_BASE_URL` + `AZURE_MODELS` | intel | Use Azure AI Foundry (Claude via the Anthropic Messages API) — auto-selected when set |
 | `ORTHOSEC_LOCAL_MODEL_URL` | intel / remediation | Use a **local** OpenAI-compatible model (e.g. Foundation-Sec-8B via Ollama) for briefing / `ask` / `remediate --auto` — highest precedence, offline. With `ORTHOSEC_LOCAL_MODEL` · `ORTHOSEC_LOCAL_API_KEY` · `ORTHOSEC_LOCAL_TIMEOUT` |
 | `ORTHOSEC_FIX_ORDER` | remediate | `deterministic-first` (default) or `model-first` — order of the verify-gated auto-fix cascade (deterministic codemod · local model · cloud model) |
+| `ORTHOSEC_CONFIDENCE` · `ORTHOSEC_CONFIDENCE_MAX` | scan | `1` enables model corroboration of findings → confidence tiers (`confirmed`/`deterministic`); max findings to corroborate (default 40). Needs a model backend |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |

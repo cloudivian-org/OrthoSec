@@ -49,7 +49,8 @@ def to_sarif(result: ScanResult, version: str = "0.1.0") -> dict:
             }],
             # Stable identity so GitHub code scanning dedupes across runs and line moves.
             "partialFingerprints": {"orthosecFingerprint/v1": f.fingerprint},
-            "properties": {"owasp-llm": f.owasp_llm, "atlas": f.atlas, "confidence": f.confidence},
+            "properties": {"owasp-llm": f.owasp_llm, "atlas": f.atlas, "confidence": f.confidence,
+                           "confidence-tier": f.confidence_tier},
         }
         code_flow = _code_flow(f)
         if code_flow:
