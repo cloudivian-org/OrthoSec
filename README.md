@@ -417,9 +417,9 @@ Accuracy is measured, not asserted. A labeled corpus of vulnerable samples **and
 
 | | Precision | Recall | F1 |
 |---|---|---|---|
-| All 11 detectors, 46 cases | 100% | 100% | 100% |
+| 78 cases — full Top-10 (Python) + LLM01/LLM05 across all 9 languages | 100% | 100% | 100% |
 
-Zero false positives on the safe look-alikes is the headline number — a scanner that cries wolf gets uninstalled. `tests/test_benchmark.py` enforces this as a **regression gate** (precision/recall ≥ 95%, FP = 0), so detection quality can't silently degrade. Methodology and honest limitations (obfuscation, cross-file dataflow, non-Python langs) are in [benchmark/README.md](benchmark/README.md). Adversarial cases welcome.
+Zero false positives on the safe look-alikes is the headline number — a scanner that cries wolf gets uninstalled. The benchmark now spans **all nine languages**, not just Python, so the multi-language claim is measured. `tests/test_benchmark.py` enforces this as a **regression gate** (precision/recall ≥ 95%, FP = 0), so detection quality can't silently degrade. On top of the benchmark, OrthoSec is re-validated against **~20 popular public AI repos** across the nine languages — see [VALIDATION.md](VALIDATION.md) for the corpus, the real true-positives found, and the false-positive classes fixed. Methodology and honest limitations (self-labeled corpus, obfuscation, deep cross-file flows) are in [benchmark/README.md](benchmark/README.md). Adversarial cases welcome.
 
 ## Data handling & privacy
 

@@ -61,3 +61,53 @@ didn't write**, and the improvements are locked in by tests. Re-run any time:
 git clone --depth 1 https://github.com/Significant-Gravitas/AutoGPT
 orthosec scan AutoGPT --no-exec --json out.json
 ```
+
+---
+
+## 2026 update — nine-language validation at scale
+
+The engine now covers nine languages with interprocedural + cross-module taint. It was
+re-validated against **~20 popular public AI projects** (several hundred thousand lines),
+and the detection benchmark was expanded from Python-only to **78 cases across all nine
+languages** (`benchmark/run.py` — still 100% precision / 100% recall / 0 FP, CI-gated).
+
+### Corpus (public repos, shallow-cloned, triaged)
+
+| Language | Repos scanned |
+|---|---|
+| TypeScript / JS | LibreChat, chatbot-ui, ai-chatbot, openai-node |
+| Python | crewAI, gpt-researcher, gpt-pilot, AgentGPT, openai-cookbook |
+| Go | langchaingo, fabric |
+| Java | langchain4j, spring-ai |
+| C# | BotSharp, semantic-kernel |
+| Ruby | langchainrb, discourse-ai |
+| PHP | instructor-php, LLPhant |
+| Rust | rig, graniet/llm, langchain-rust, orch, fireside-chat, smartgpt |
+
+### Result: every finding a true positive after FP hardening
+
+Real true positives confirmed (not synthetic): langchain4j's double-interprocedural SQL
+retriever (LLM-generated SQL through a helper into `executeQuery`), BotSharp's Dapper
+SQL-injection (×2), instructor-php's user-`{$query}`-into-`role:'system'` (×8), LibreChat's
+`req.body.promptPrefix` into a system prompt (×3). Every remaining LLM01/LLM05 finding
+across the corpus triaged to a defensible true positive.
+
+**False-positive classes found and fixed in this pass** (each locked by a regression test):
+
+| FP class | Where found | Fix |
+|---|---|---|
+| `regex.exec()` read as `child_process.exec` shell | LibreChat (51 HIGH) | resolve only true bare-identifier / `child_process` receivers |
+| cross-module method-name collisions | Java/Kotlin/C# | resolve only capitalized static receivers (`Sink.run()`) |
+| parameterized SQL (`execute(sql, (out,))`) | crewAI | taint-check the query string arg only |
+| `self.x = out` poisoning every `self.*` read | crewAI | taint binds names, not attribute/subscript roots |
+| `<textarea>.innerHTML` entity-decode idiom | fabric | recognized as script-inert RCDATA |
+| `output_wav_path`/`output_dir` seeded as model output | openai-cookbook | filesystem-name lookahead on the output seed |
+| user-role f-string flagged (regex fallback) | gpt-researcher (Py 3.9) | fallback respects message roles |
+| internal `completion_request` seeded untrusted | rig (24 LLM01) | untrusted seed tightened to clearly-user names |
+
+### Honest scope
+
+Triage is partly judgment and the corpus is curated, not random — this is measured
+hardening plus a multi-language benchmark, not an independently-audited precision figure on
+a random sample. Next step toward that: a larger, randomly-sampled corpus with third-party
+labeling. Everything here is reproducible: `orthosec scan <repo> --no-exec --json out.json`.

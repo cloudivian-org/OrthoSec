@@ -4,6 +4,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.11.3] — 2026-07-25
+
+### Changed — accuracy at scale (validation)
+- **Multi-language benchmark.** The detection-efficacy benchmark grew from Python-only
+  (46 cases) to **78 cases across all nine languages** — LLM01 + LLM05 pos/safe-lookalike
+  cases for TypeScript, Go, Java, Kotlin, C#, Ruby, PHP, and Rust, alongside the full
+  Python Top-10. Still **100% precision / 100% recall / 0 FP**, and now CI-gated by
+  `tests/test_benchmark.py`, so the multi-language accuracy claim is measured, not asserted.
+- **VALIDATION.md refreshed** with the nine-language, ~20-repo validation: the corpus, the
+  real true-positives confirmed (langchain4j double-hop SQL retriever, BotSharp SQLi ×2,
+  instructor-php system-prompt injection ×8, LibreChat ×3), and the eight false-positive
+  classes found and fixed this cycle (each locked by a regression test). Honest about scope:
+  curated corpus + self-labeling, with an independently-audited random sample as the stated
+  next step.
+
 ## [0.11.2] — 2026-07-25
 
 ### Added

@@ -9,7 +9,10 @@ python benchmark/run.py --check    # exit 1 if below thresholds (regression gate
 
 ## Current results
 
-30 labeled cases (14 vulnerable, 16 safe / clean), one file per case:
+**78 labeled cases** (vulnerable + safe look-alikes), one file per case, spanning the full
+OWASP LLM Top-10 in Python **and** LLM01/LLM05 across all eight tree-sitter languages
+(TypeScript, Go, Java, Kotlin, C#, Ruby, PHP, Rust) — so the multi-language accuracy claim
+is measured, not asserted:
 
 | Category | Precision | Recall | F1 |
 |---|---|---|---|
