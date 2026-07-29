@@ -19,3 +19,6 @@ latest.json
 
 # macOS
 .DS_Store
+
+# on-demand validation runs (name specific repos — generated locally, not published)
+validation/results/

@@ -4,6 +4,16 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Added — validation
+- **Independent random-sample validation harness** (`validation/random_sample.py`). Searches
+  GitHub for public AI repos, takes a **seeded-random** (non-curated) sample, shallow-clones
+  and scans each, and reports **measured finding rates** (per detector / severity / KLOC, and
+  the share of repos with a HIGH+) as Markdown + JSON. Reproducible: same query + seed → same
+  repos, with the exact commit recorded per repo. A `--triage-sample K` mode dumps K random
+  findings for manual TP/FP labeling, so precision can be *measured* on a random sample rather
+  than asserted. `validation/README.md` documents the methodology and its honest limits.
+  Run-specific results (which name individual repos) are gitignored, not published.
+
 ## [0.12.0] — 2026-07-25
 
 ### Added
