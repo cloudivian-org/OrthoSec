@@ -72,7 +72,7 @@ class PromptHardeningDetector:
     owasp_llm = "LLM01"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
-        for path in ctx.files:
+        for path in ctx.iter_files():
             suffix = path.suffix.lower()
             text = ctx.read(path)
             if not text:

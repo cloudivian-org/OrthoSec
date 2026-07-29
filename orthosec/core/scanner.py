@@ -36,11 +36,24 @@ _IGNORE = re.compile(r"(?i)(?:#|//)\s*orthosec:\s*ignore\b\s*([A-Za-z0-9,_\-]*)"
 
 @dataclass
 class ScanContext:
-    """Everything a detector needs. Reads are cached so N detectors read once."""
+    """Everything a detector needs. Reads are cached so N detectors read once.
+
+    `files` is the full file set — cross-module index builders MUST use it so a
+    source in one module still links to a sink in another. `shard`, when set (by the
+    parallel scanner), is the subset of files this worker is responsible for EMITTING
+    findings for. Detectors iterate `iter_files()` (the shard) but resolve cross-module
+    context against all of `files`, so sharding across processes yields the exact same
+    finding set as a serial scan — just split by which file owns each finding.
+    """
 
     root: Path
     files: list[Path]
+    shard: list[Path] | None = None
     _cache: dict[Path, str] = field(default_factory=dict)
+
+    def iter_files(self) -> list[Path]:
+        """Files this context should emit findings for (the shard, or all files)."""
+        return self.shard if self.shard is not None else self.files
 
     def read(self, path: Path) -> str:
         if path not in self._cache:
@@ -57,7 +70,7 @@ class ScanContext:
             return str(path)
 
     def files_matching(self, *patterns: str) -> Iterable[Path]:
-        for p in self.files:
+        for p in self.iter_files():
             name = p.name
             if any(fnmatch.fnmatch(name, pat) for pat in patterns):
                 yield p
@@ -84,12 +97,18 @@ class ScanResult:
 
 
 class Scanner:
-    def __init__(self, detectors=None, exclude: list[str] | None = None):
+    def __init__(self, detectors=None, exclude: list[str] | None = None, jobs=None):
+        # `jobs`: worker processes for the scan. None = auto (parallel on large trees,
+        # serial on small ones); 1 = force serial; N = force N. Parallelism is only used
+        # with the default builtin detector set — a custom set can't be rebuilt in a
+        # worker process, so it always runs serially.
+        self._default_detectors = detectors is None
         if detectors is None:
             from orthosec.detectors import load_builtin_detectors
             detectors = load_builtin_detectors()
         self.detectors = detectors
         self.exclude = exclude or []
+        self.jobs = jobs
 
     def scan(self, root: str | os.PathLike) -> ScanResult:
         root_path = Path(root).resolve()
@@ -113,12 +132,27 @@ class Scanner:
         findings: list[Finding] = []
         errors: list[str] = []
         ran: list[str] = []
-        for det in self.detectors:
-            ran.append(getattr(det, "id", det.__class__.__name__))
+
+        jobs = 1
+        if self._default_detectors:
+            from orthosec.core._parallel import resolve_jobs
+            jobs = resolve_jobs(len(files), self.jobs)
+
+        if jobs > 1:
             try:
-                findings.extend(det.scan(ctx))
-            except Exception as exc:  # detector isolation
-                errors.append(f"{getattr(det, 'id', det)}: {exc!r}")
+                from orthosec.core._parallel import run_parallel
+                findings, errors, ran = run_parallel(root_path, files, jobs)
+            except Exception as exc:  # fail-open: any pool problem → serial scan
+                findings, errors, ran = [], [f"parallel scan fell back to serial: {exc!r}"], []
+        if jobs <= 1 or not ran:
+            findings, errors_serial, ran = [], [], []
+            for det in self.detectors:
+                ran.append(getattr(det, "id", det.__class__.__name__))
+                try:
+                    findings.extend(det.scan(ctx))
+                except Exception as exc:  # detector isolation
+                    errors_serial.append(f"{getattr(det, 'id', det)}: {exc!r}")
+            errors = errors + errors_serial
 
         findings = [f for f in findings if not _inline_suppressed(ctx, f)]
         # Rank by severity, then confidence (highest-signal first), then location.

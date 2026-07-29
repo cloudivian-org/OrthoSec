@@ -38,7 +38,7 @@ class DataPoisoningDetector:
     owasp_llm = "LLM04"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
-        for path in ctx.files:
+        for path in ctx.iter_files():
             if path.suffix.lower() not in {".py", ".ipynb", ".js", ".ts"}:
                 continue
             raw = ctx.read(path)

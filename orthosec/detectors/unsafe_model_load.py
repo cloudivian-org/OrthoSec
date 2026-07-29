@@ -34,7 +34,7 @@ class UnsafeModelLoadDetector:
     owasp_llm = "LLM03"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
-        for path in ctx.files:
+        for path in ctx.iter_files():
             if path.suffix.lower() not in {".py", ".ipynb"}:
                 continue
             text = ctx.read(path)

@@ -369,7 +369,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 
 | Command | What it does | Key options |
 |---|---|---|
-| `scan <path \| git-url \| owner/repo>` | Scan a local path, or clone & scan a remote/private repo | `--profile`, `--html/--json/--sarif FILE`, `--no-report`, `--no-exec`, `--fail-on {critical,high,medium,low,none}`, `--diff [REF]`, `--baseline/--write-baseline FILE`, `--open`; **remote:** `--branch`, `--git-token-stdin`, `--git-username`, `--keep-clone` |
+| `scan <path \| git-url \| owner/repo>` | Scan a local path, or clone & scan a remote/private repo | `--profile`, `--jobs/-j N`, `--html/--json/--sarif FILE`, `--no-report`, `--no-exec`, `--fail-on {critical,high,medium,low,none}`, `--diff [REF]`, `--baseline/--write-baseline FILE`, `--open`; **remote:** `--branch`, `--git-token-stdin`, `--git-username`, `--keep-clone` |
 | `ask <path> "<question>"` | Grounded executive Q&A about a scan *(needs an LLM key)* | `--profile` |
 | `remediate <path>` | Plan or apply fixes via remediation agents | `--rule`, `--agent`, `--suggest`, `--auto`, `--no-verify` |
 | `watch <path>` | Re-scan on a schedule, writing a report each run | `--every`, `--report-dir`, `--profile`, `--no-exec` |
@@ -392,6 +392,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_DISCOVER` · `ORTHOSEC_DISCOVER_MAX_FILES` · `ORTHOSEC_DISCOVER_GATE` | scan | `1` enables model-led discovery of extra `advisory` findings (max files, default 8); `_GATE=1` lets advisory findings fail `--fail-on` (default: they don't). Needs a model backend |
 | `ORTHOSEC_OSV` · `ORTHOSEC_OSV_TIMEOUT` | scan | `1` enriches pinned AI/ML deps with **known CVEs** from OSV.dev (deterministic, one network call, fails open); per-call timeout (default 8s) |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
+| `ORTHOSEC_JOBS` · `ORTHOSEC_PARALLEL_FORK` | scan | Worker processes (same as `--jobs/-j`; default auto — parallel on large trees, serial on small, `1` forces serial). Findings are byte-identical to a serial scan. On Linux workers `fork` and inherit the prebuilt cross-module index for free; set `_FORK=1` to opt into fork on macOS too (off by default — Python disables fork there for safety) |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |
 | `ORTHOSEC_OPEN` | scan | `1` opens the report in a browser after the scan |

@@ -53,7 +53,7 @@ class SecretsDetector:
     owasp_llm = "LLM02"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
-        for path in ctx.files:
+        for path in ctx.iter_files():
             text = ctx.read(path)
             if not text:
                 continue

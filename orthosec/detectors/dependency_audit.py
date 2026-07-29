@@ -55,7 +55,7 @@ class DependencyAuditDetector:
     owasp_llm = "LLM03"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
-        for path in ctx.files:
+        for path in ctx.iter_files():
             name = path.name.lower()
             if re.search(r"requirements.*\.txt$", name) or name == "constraints.txt":
                 yield from self._scan_pip(ctx, path)
@@ -69,7 +69,7 @@ class DependencyAuditDetector:
     # --- OSV.dev known-vulnerability enrichment -----------------------------
     def _scan_osv(self, ctx, osv) -> Iterable[Finding]:
         deps = []   # (ecosystem, name, version, path, lineno, evidence)
-        for path in ctx.files:
+        for path in ctx.iter_files():
             name = path.name.lower()
             if re.search(r"requirements.*\.txt$", name) or name == "constraints.txt":
                 deps += self._pip_pinned(ctx, path)

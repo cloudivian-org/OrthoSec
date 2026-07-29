@@ -4,6 +4,27 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Added — performance
+- **Process-parallel scanning (`--jobs/-j N`, env `ORTHOSEC_JOBS`).** The taint hot loop is
+  pure-Python AST traversal (CPU- and GIL-bound), so scans now shard files across worker
+  processes. Each worker emits findings only for its shard but resolves cross-module context
+  against the full file set, so results are **byte-for-byte identical to a serial scan** —
+  guaranteed by a new `tests/test_parallel.py` that diffs serial vs parallel finding sets
+  (including a cross-module case split across shards). Default is auto (parallel on large
+  trees, serial on small); `--jobs 1` forces serial. On Linux workers `fork` and inherit the
+  prebuilt cross-module index + warm parse cache copy-on-write (no per-worker rebuild);
+  macOS/Windows use `spawn` (opt into fork with `ORTHOSEC_PARALLEL_FORK=1`). ~2.5–2.7× on a
+  large heavy tree; fully fail-open (any pool problem falls back to a serial scan).
+
+### Fixed — CI
+- **py3.9 C# grammar pinned to `tree-sitter-c-sharp==0.23.1`.** Both 0.23.4 and 0.23.5 ship
+  binaries missing `_tree_sitter_c_sharp_external_scanner_create`; dlopen fails, the C#
+  analyzer silently degrades to regex, and two C# benchmark cases went undetected. It only
+  surfaced on the py3.9 CI row (wheel-tag roulette). 0.23.1 is an abi3 wheel covering
+  cp39–cp312; benchmark is back to 100%/100%/0 FP on every matrix row.
+- **Dogfood gate (`orthosec.yml`) now installs this checkout** instead of the PyPI composite
+  action, so it tests the code being committed rather than the last published tag.
+
 ## [0.12.3] — 2026-07-29
 
 ### Fixed — precision (found by dogfooding OrthoSec on its own code)

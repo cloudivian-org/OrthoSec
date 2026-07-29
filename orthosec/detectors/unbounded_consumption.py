@@ -64,7 +64,7 @@ class UnboundedConsumptionDetector:
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
         from orthosec.detectors._signals import is_test_path
-        for path in ctx.files:
+        for path in ctx.iter_files():
             suffix = path.suffix.lower()
             text = ctx.read(path)
             if not text:

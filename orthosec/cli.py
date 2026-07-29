@@ -60,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="Suppress findings recorded in this baseline (gate on NEW findings only)")
     p_scan.add_argument("--write-baseline", metavar="FILE",
                         help="Record current findings as the baseline (accept them) and exit 0")
+    p_scan.add_argument("--jobs", "-j", type=int, default=None, metavar="N",
+                        help="Worker processes for the scan (env: ORTHOSEC_JOBS; "
+                             "default: auto — parallel on large trees, serial on small ones; "
+                             "1 = force serial)")
     p_scan.add_argument("--no-exec", action="store_true", help="Skip the LLM executive briefing")
     p_scan.add_argument("--open", action="store_true",
                         help="Open the HTML report in your browser after the scan (env: ORTHOSEC_OPEN)")
@@ -167,7 +171,7 @@ def _run_scan(args) -> int:
     fail_on = args.fail_on or cfg.get("fail_on") or os.environ.get("ORTHOSEC_FAIL_ON") or "high"
     exclude = cfg.get("exclude") or []
 
-    scanner = Scanner(exclude=exclude)
+    scanner = Scanner(exclude=exclude, jobs=getattr(args, "jobs", None))
     if args.diff:
         changed = _git_changed_files(args.path, args.diff)
         if changed is None:

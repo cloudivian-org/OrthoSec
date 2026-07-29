@@ -24,7 +24,7 @@ class MisinformationDetector:
     owasp_llm = "LLM09"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
-        for path in ctx.files:
+        for path in ctx.iter_files():
             if path.suffix.lower() != ".py":
                 continue
             text = ctx.read(path)
