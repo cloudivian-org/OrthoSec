@@ -1,0 +1,58 @@
+{
+  "name": "orthosec",
+  "displayName": "OrthoSec — AI Security Architect",
+  "description": "Inline OWASP LLM Top-10 security findings for AI code, powered by the OrthoSec scanner.",
+  "version": "0.1.0",
+  "publisher": "cloudivian",
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Linters", "Programming Languages"],
+  "keywords": ["security", "ai", "llm", "owasp", "sast"],
+  "repository": { "type": "git", "url": "https://github.com/cloudivian-org/OrthoSec" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "orthosec.scanWorkspace", "title": "OrthoSec: Scan Workspace", "category": "OrthoSec" },
+      { "command": "orthosec.scanFile", "title": "OrthoSec: Scan Current File", "category": "OrthoSec" },
+      { "command": "orthosec.clear", "title": "OrthoSec: Clear Findings", "category": "OrthoSec" }
+    ],
+    "configuration": {
+      "title": "OrthoSec",
+      "properties": {
+        "orthosec.path": {
+          "type": "string",
+          "default": "orthosec",
+          "description": "Path to the orthosec executable (or `python -m orthosec.cli` split across args)."
+        },
+        "orthosec.scanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan a file automatically when it is saved."
+        },
+        "orthosec.profile": {
+          "type": "string",
+          "enum": ["engineer", "appsec", "ciso", "product"],
+          "default": "appsec",
+          "description": "Audience profile passed to the scanner."
+        },
+        "orthosec.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra CLI args (e.g. [\"--baseline\", \".orthosec-baseline.json\"])."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.4.0"
+  }
+}

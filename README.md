@@ -383,7 +383,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `detectors` | List the active detectors | — |
 | `profiles` | List the audience profiles | — |
 
-**Ways to run OrthoSec:** static `scan` (CLI / Docker / CI) · scheduled `watch` · runtime `guard` SDK (Python + Node) · inline `proxy` gateway. Same taxonomy and report across all four.
+**Ways to run OrthoSec:** static `scan` (CLI / Docker / CI) · in the editor ([**VS Code extension**](editors/vscode) — inline findings as you code) · scheduled `watch` · runtime `guard` SDK (Python + Node) · inline `proxy` gateway. Same taxonomy and report across all of them.
 
 **Configuration & environment variables** — put any of these in a `.env` (copy `.env.example`); real environment variables always win over the file. CLI flags win over both.
 
