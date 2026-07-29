@@ -1,9 +1,9 @@
 // OrthoSec VS Code extension.
 //
 // Thin client over the real OrthoSec scanner: it shells out to the user's installed
-// `orthosec` CLI with `--json`, then renders the deterministic findings as inline
-// diagnostics (squiggles). No analysis is reimplemented here — the editor shows exactly
-// what the scanner produces.
+// `orthosec` CLI with `--json`, renders the deterministic findings as inline diagnostics
+// (squiggles), shows remediation on hover, and offers quick-fixes (apply a verified fix via
+// `orthosec remediate --auto`, or suppress inline). No analysis is reimplemented here.
 import * as vscode from "vscode";
 import { execFile } from "child_process";
 import * as fs from "fs";
@@ -34,10 +34,12 @@ const SCANNABLE = new Set([
   "python", "typescript", "typescriptreact", "javascript", "javascriptreact",
   "go", "java", "kotlin", "csharp", "ruby", "php", "rust",
 ]);
+const SELECTOR: vscode.DocumentSelector = [...SCANNABLE].map((language) => ({ language, scheme: "file" }));
 
 let diagnostics: vscode.DiagnosticCollection;
 let output: vscode.OutputChannel;
 let status: vscode.StatusBarItem;
+const findingsByFile = new Map<string, Finding[]>();
 
 export function activate(context: vscode.ExtensionContext): void {
   diagnostics = vscode.languages.createDiagnosticCollection("orthosec");
@@ -51,7 +53,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("orthosec.scanFile", scanActiveFile),
     vscode.commands.registerCommand("orthosec.clear", () => {
       diagnostics.clear();
+      findingsByFile.clear();
       status.hide();
+    }),
+    vscode.commands.registerCommand("orthosec.applyFix", applyFix),
+    vscode.commands.registerCommand("orthosec.suppress", suppress),
+    vscode.languages.registerHoverProvider(SELECTOR, { provideHover }),
+    vscode.languages.registerCodeActionsProvider(SELECTOR, new OrthoSecCodeActions(), {
+      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     }),
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const cfg = vscode.workspace.getConfiguration("orthosec");
@@ -65,6 +74,8 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   diagnostics?.dispose();
 }
+
+// --- scanning ---------------------------------------------------------------
 
 function scanActiveFile(): void {
   const ed = vscode.window.activeTextEditor;
@@ -84,25 +95,20 @@ function scanWorkspace(): void {
   void scanTarget(folder.uri.fsPath, folder.uri.fsPath);
 }
 
+function cliParts(): { bin: string; prefix: string[] } {
+  const cfg = vscode.workspace.getConfiguration("orthosec");
+  const parts = (cfg.get<string>("path", "orthosec") || "orthosec").trim().split(/\s+/);
+  return { bin: parts[0], prefix: parts.slice(1) };
+}
+
 async function scanTarget(target: string, root: string): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("orthosec");
-  const binConfig = (cfg.get<string>("path", "orthosec") || "orthosec").trim();
+  const { bin, prefix } = cliParts();
   const profile = cfg.get<string>("profile", "appsec");
   const extra = cfg.get<string[]>("extraArgs", []) ?? [];
-
-  // Allow `orthosec.path` to be a multi-word command like "python -m orthosec.cli".
-  const parts = binConfig.split(/\s+/);
-  const bin = parts[0];
   const jsonPath = path.join(os.tmpdir(), `orthosec-${Date.now()}-${Math.floor(Math.random() * 1e6)}.json`);
-  const args = [
-    ...parts.slice(1),
-    "scan", target,
-    "--json", jsonPath,
-    "--no-report", "--no-exec",
-    "--profile", profile,
-    "--fail-on", "none", // never non-zero exit; we render findings, not gate
-    ...extra,
-  ];
+  const args = [...prefix, "scan", target, "--json", jsonPath, "--no-report", "--no-exec",
+    "--profile", profile, "--fail-on", "none", ...extra];
 
   status.text = "$(sync~spin) OrthoSec scanning…";
   status.show();
@@ -110,36 +116,39 @@ async function scanTarget(target: string, root: string): Promise<void> {
 
   execFile(bin, args, { cwd: root, maxBuffer: 64 * 1024 * 1024 }, (err, _stdout, stderr) => {
     let findings: Finding[] = [];
+    let ok = false;
     try {
-      const raw = fs.readFileSync(jsonPath, "utf8");
-      const data = JSON.parse(raw);
+      const data = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
       findings = Array.isArray(data) ? data : data.findings ?? [];
-    } catch (readErr) {
-      if (err) {
-        status.text = "$(error) OrthoSec failed";
-        output.appendLine(String(stderr || err));
-        void vscode.window.showErrorMessage(
-          `OrthoSec could not run '${bin}'. Set "orthosec.path" in Settings (e.g. an absolute path, or "python -m orthosec.cli").`
-        );
-        return;
-      }
+      ok = true;
+    } catch {
+      ok = false;
     } finally {
       fs.promises.unlink(jsonPath).catch(() => undefined);
+    }
+    if (!ok) {
+      status.text = "$(error) OrthoSec failed";
+      output.appendLine(String(stderr || err));
+      void vscode.window.showErrorMessage(
+        `OrthoSec could not run '${bin}'. Set "orthosec.path" in Settings (an absolute path, or "python -m orthosec.cli").`
+      );
+      return;
     }
     render(findings, root, target);
   });
 }
 
 function render(findings: Finding[], root: string, target: string): void {
-  // Clear only what we re-scanned: a single file, or (workspace scan) everything.
   const single = fs.existsSync(target) && fs.statSync(target).isFile();
   if (single) {
     diagnostics.delete(vscode.Uri.file(target));
+    findingsByFile.delete(target);
   } else {
     diagnostics.clear();
+    findingsByFile.clear();
   }
 
-  const byFile = new Map<string, vscode.Diagnostic[]>();
+  const diagByFile = new Map<string, vscode.Diagnostic[]>();
   for (const f of findings) {
     const abs = path.isAbsolute(f.file) ? f.file : path.resolve(root, f.file);
     const line = Math.max(0, (f.line || 1) - 1);
@@ -148,18 +157,17 @@ function render(findings: Finding[], root: string, target: string): void {
     const owasp = f.owasp_llm ? `[${f.owasp_llm}] ` : "";
     const diag = new vscode.Diagnostic(
       range,
-      `${owasp}${f.title}${tier}\n${f.remediation ?? ""}`.trim(),
+      `${owasp}${f.title}${tier}`,
       SEVERITY[(f.severity || "MEDIUM").toUpperCase()] ?? vscode.DiagnosticSeverity.Warning
     );
     diag.source = "OrthoSec";
     if (f.rule_id) {
       diag.code = f.rule_id;
     }
-    const list = byFile.get(abs) ?? [];
-    list.push(diag);
-    byFile.set(abs, list);
+    diagByFile.get(abs)?.push(diag) ?? diagByFile.set(abs, [diag]);
+    findingsByFile.get(abs)?.push(f) ?? findingsByFile.set(abs, [f]);
   }
-  for (const [abs, list] of byFile) {
+  for (const [abs, list] of diagByFile) {
     diagnostics.set(vscode.Uri.file(abs), list);
   }
 
@@ -167,5 +175,101 @@ function render(findings: Finding[], root: string, target: string): void {
   status.text = total ? `$(shield) OrthoSec: ${total}` : "$(shield) OrthoSec: clean";
   status.tooltip = "OrthoSec findings — click to re-scan the workspace";
   status.show();
-  output.appendLine(`Rendered ${total} finding(s) across ${byFile.size} file(s).`);
+  output.appendLine(`Rendered ${total} finding(s) across ${diagByFile.size} file(s).`);
+}
+
+// --- hover ------------------------------------------------------------------
+
+function provideHover(doc: vscode.TextDocument, pos: vscode.Position): vscode.Hover | undefined {
+  const here = (findingsByFile.get(doc.uri.fsPath) ?? []).filter((f) => (f.line || 1) - 1 === pos.line);
+  if (!here.length) {
+    return undefined;
+  }
+  const md = new vscode.MarkdownString();
+  md.isTrusted = true;
+  for (const f of here) {
+    const owasp = f.owasp_llm ? ` · ${f.owasp_llm}` : "";
+    md.appendMarkdown(`**🛡 OrthoSec: ${f.title}**${owasp}\n\n`);
+    if (f.remediation) {
+      md.appendMarkdown(`_Fix:_ ${f.remediation}\n\n`);
+    }
+    if (f.rule_id) {
+      md.appendMarkdown(`\`${f.rule_id}\`  ·  severity ${f.severity}`);
+      if (f.confidence_tier && f.confidence_tier !== "deterministic") {
+        md.appendMarkdown(`  ·  ${f.confidence_tier}`);
+      }
+      md.appendMarkdown("\n\n");
+    }
+  }
+  return new vscode.Hover(md);
+}
+
+// --- quick fixes ------------------------------------------------------------
+
+class OrthoSecCodeActions implements vscode.CodeActionProvider {
+  provideCodeActions(
+    doc: vscode.TextDocument,
+    _range: vscode.Range | vscode.Selection,
+    ctx: vscode.CodeActionContext
+  ): vscode.CodeAction[] {
+    const actions: vscode.CodeAction[] = [];
+    for (const diag of ctx.diagnostics) {
+      if (diag.source !== "OrthoSec") {
+        continue;
+      }
+      const rule = typeof diag.code === "string" ? diag.code : String(diag.code ?? "");
+      const line = diag.range.start.line;
+
+      const fix = new vscode.CodeAction(`OrthoSec: apply fix (${rule || "remediate"})`, vscode.CodeActionKind.QuickFix);
+      fix.diagnostics = [diag];
+      fix.command = { command: "orthosec.applyFix", title: "Apply OrthoSec fix",
+        arguments: [doc.uri, rule] };
+      actions.push(fix);
+
+      const sup = new vscode.CodeAction("OrthoSec: suppress this finding", vscode.CodeActionKind.QuickFix);
+      sup.diagnostics = [diag];
+      sup.command = { command: "orthosec.suppress", title: "Suppress",
+        arguments: [doc.uri, line, rule, doc.languageId] };
+      actions.push(sup);
+    }
+    return actions;
+  }
+}
+
+async function applyFix(uri: vscode.Uri, rule: string): Promise<void> {
+  const file = uri.fsPath;
+  const { bin, prefix } = cliParts();
+  const args = [...prefix, "remediate", file, "--auto"];
+  if (rule) {
+    args.push("--rule", rule);
+  }
+  output.appendLine(`$ ${bin} ${args.join(" ")}`);
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: "OrthoSec: applying fix…" },
+    () =>
+      new Promise<void>((resolve) => {
+        execFile(bin, args, { cwd: path.dirname(file), maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+          output.appendLine(String(stdout || ""));
+          if (err) {
+            output.appendLine(String(stderr || err));
+            void vscode.window.showErrorMessage("OrthoSec: could not apply the fix (see Output → OrthoSec). Original backed up to *.orig.");
+          } else {
+            void vscode.window.showInformationMessage("OrthoSec applied a fix (original backed up to *.orig). Re-scanning…");
+          }
+          resolve();
+        });
+      })
+  );
+  void scanTarget(file, path.dirname(file)); // reflect the result
+}
+
+async function suppress(uri: vscode.Uri, line: number, rule: string, langId: string): Promise<void> {
+  const token = langId === "python" || langId === "ruby" ? "#" : "//";
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const text = doc.lineAt(line).text;
+  const suffix = `  ${token} orthosec: ignore${rule ? " " + rule : ""}`;
+  const edit = new vscode.WorkspaceEdit();
+  edit.insert(uri, new vscode.Position(line, text.length), suffix);
+  await vscode.workspace.applyEdit(edit);
+  await doc.save();
 }

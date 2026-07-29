@@ -2,7 +2,7 @@
   "name": "orthosec",
   "displayName": "OrthoSec — AI Security Architect",
   "description": "Inline OWASP LLM Top-10 security findings for AI code, powered by the OrthoSec scanner.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "cloudivian",
   "license": "Apache-2.0",
   "engines": { "vscode": "^1.75.0" },

@@ -17,12 +17,15 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   `fail-on: high` now that the product source is genuinely clean.
 
 ### Added
-- **VS Code extension** (`editors/vscode`). A thin TypeScript client that runs the installed
-  `orthosec` CLI (`--json`) and renders its deterministic findings as inline diagnostics
-  (squiggles) — scan-on-save plus "Scan Workspace" / "Scan Current File" commands, an OWASP
-  id + rule id + one-line fix on each finding, and a status-bar count. Reuses the real
-  scanner (no analysis reimplemented); configurable `orthosec.path` supports
-  `python -m orthosec.cli`. Compiles clean with `npm run compile`; package with `vsce`.
+- **VS Code extension** (`editors/vscode`, v0.2.0). A thin TypeScript client that runs the
+  installed `orthosec` CLI (`--json`) and renders its deterministic findings as inline
+  diagnostics (squiggles) — scan-on-save plus "Scan Workspace" / "Scan Current File"
+  commands and a status-bar count. **Hover** a finding for its OWASP category, severity /
+  confidence tier, and fix. **Quick fixes** (💡): *Apply fix* (runs `orthosec remediate
+  --auto` for that rule, backs up to `*.orig`, re-scans) and *Suppress* (inserts a
+  language-correct `# / // orthosec: ignore <RULE>`). Reuses the real scanner (no analysis
+  reimplemented); `orthosec.path` supports `python -m orthosec.cli`. Compiles clean with
+  `npm run compile`; package with `vsce`.
 
 ## [0.12.2] — 2026-07-29
 

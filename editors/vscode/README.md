@@ -24,6 +24,12 @@ Make sure `orthosec --version` runs in your shell. If it isn't on PATH, set
 - **OrthoSec: Scan Workspace** — scan the whole folder.
 - **OrthoSec: Scan Current File** — scan just the active file.
 - **OrthoSec: Clear Findings** — clear the squiggles.
+- **Hover** a finding to see the OWASP category, severity/confidence tier, and the concrete fix.
+- **Quick fixes** (the 💡 lightbulb on a finding):
+  - **Apply fix** — runs `orthosec remediate --auto` for that rule (deterministic codemod
+    where possible, else an LLM-drafted patch), backs up the original to `*.orig`, and
+    re-scans to reflect the result.
+  - **Suppress this finding** — inserts a language-correct `# / // orthosec: ignore <RULE>`.
 
 Findings show as errors (CRITICAL/HIGH), warnings (MEDIUM), info (LOW), or hints (INFO, e.g.
 advisory / model-discovered), each with its OWASP LLM id, rule id, and one-line fix.
