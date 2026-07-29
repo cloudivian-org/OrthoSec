@@ -388,6 +388,76 @@
     {
       "file": "cases/llm05_safe_ts.ts",
       "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_go.go",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_go.go",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_java.java",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_java.java",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_kotlin.kt",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_kotlin.kt",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_csharp.cs",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_csharp.cs",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_ruby.rb",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_ruby.rb",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_php.php",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_php.php",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_rust.rs",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_rust.rs",
+      "expect": []
     }
   ]
 }
