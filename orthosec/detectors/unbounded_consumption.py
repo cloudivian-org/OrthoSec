@@ -63,15 +63,28 @@ class UnboundedConsumptionDetector:
     owasp_llm = "LLM10"
 
     def scan(self, ctx: ScanContext) -> Iterable[Finding]:
+        from orthosec.detectors._signals import is_test_path
         for path in ctx.files:
             suffix = path.suffix.lower()
             text = ctx.read(path)
             if not text:
                 continue
             if suffix in {".py", ".ipynb"}:
-                yield from self._scan_python(ctx, path, text)
+                gen = self._scan_python(ctx, path, text)
             elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go"}:
-                yield from self._scan_regex(ctx, path, text)
+                gen = self._scan_regex(ctx, path, text)
+            else:
+                continue
+            # An uncapped LLM call in test/example code is not a production denial-of-wallet
+            # risk — downgrade to INFO so it stays visible but out of the gate, the score,
+            # and the noise. (Found by the random-sample harness: LLM10 dominated, in tests.)
+            in_test = is_test_path(ctx.rel(path)) or is_test_path(path.name)
+            for f in gen:
+                if in_test:
+                    f.severity = Severity.INFO
+                    f.metadata = {**(f.metadata or {}),
+                                  "note": "test/example code — not a production consumption risk"}
+                yield f
 
     def _scan_python(self, ctx, path, text) -> Iterable[Finding]:
         tree = safe_parse(text)

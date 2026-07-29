@@ -16,6 +16,18 @@ import re
 # Words that flip a mitigation mention into evidence the control is ABSENT.
 NEGATION = re.compile(r"(?i)\b(no|not|without|lacks?|missing|skip|bypass|disabled?|todo|fixme)\b")
 
+# Test / fixture / example / demo paths. Code here rarely represents production risk, so
+# some detectors downgrade or skip findings in it (a fake secret in a fixture, an uncapped
+# LLM call in a test, …). Kept deliberately narrow to avoid hiding real product code.
+_TEST_PATH = re.compile(
+    r"(?i)((^|/)(tests?|__tests__|fixtures?|mocks?|examples?|samples?|demos?)(/)|"
+    r"conftest|_test\.|\.test\.|(^|/)test_|\.spec\.)")
+
+
+def is_test_path(rel_path: str) -> bool:
+    """True if `rel_path` looks like test / fixture / example / demo code."""
+    return bool(_TEST_PATH.search(rel_path or ""))
+
 
 def strip_comments(text: str) -> str:
     """Blank out trailing line comments (# and //) so behavior detectors don't fire

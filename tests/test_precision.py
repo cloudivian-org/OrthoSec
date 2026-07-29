@@ -220,5 +220,27 @@ class TestSelfAttributeTaintPrecision(unittest.TestCase):
         self.assertIn("LLM01", _cats(_scan(src)))
 
 
+class TestLLM10TestPathPrecision(unittest.TestCase):
+    """An uncapped LLM call in test/example code is not a production denial-of-wallet risk —
+    downgraded to INFO (found by the random-sample harness: LLM10 dominated, mostly in tests)."""
+
+    _CALL = "def h(client):\n    return client.chat.completions.create(model='x', messages=[])\n"
+
+    def _sev(self, name):
+        findings = _scan(self._CALL, name)
+        return next((f.severity.name for f in findings if f.owasp_llm == "LLM10"), None)
+
+    def test_production_llm10_kept(self):
+        self.assertEqual(self._sev("service.py"), "MEDIUM")
+
+    def test_test_file_llm10_downgraded(self):
+        self.assertEqual(self._sev("test_service.py"), "INFO")   # test_ prefix
+        self.assertEqual(self._sev("svc_test.py"), "INFO")       # _test. suffix
+
+    def test_still_a_finding_not_removed(self):
+        # downgraded, not dropped — still visible for completeness
+        self.assertIn("LLM10", _cats(_scan(self._CALL, "test_x.py")))
+
+
 if __name__ == "__main__":
     unittest.main()

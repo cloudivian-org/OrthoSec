@@ -4,6 +4,15 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-07-29
+
+### Fixed — precision
+- **LLM10 (uncapped completion) in test/example code is downgraded to INFO.** An uncapped
+  LLM call in a `test_*` / `tests/` / `examples/` file is not a production denial-of-wallet
+  risk; it now stays visible but out of the gate, the score, and the noise. Surfaced by the
+  new random-sample harness (LLM10 dominated a random scan, mostly in test files). Shared
+  `is_test_path` helper added to `detectors/_signals.py`. `tests/test_precision.py` +3.
+
 ### Added — validation
 - **Independent random-sample validation harness** (`validation/random_sample.py`). Searches
   GitHub for public AI repos, takes a **seeded-random** (non-curated) sample, shallow-clones
