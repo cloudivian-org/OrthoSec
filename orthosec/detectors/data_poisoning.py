@@ -18,8 +18,8 @@ from orthosec.detectors._signals import strip_comments, mitigation_present
 
 # Fine-tuning / training-job creation.
 _FINETUNE = re.compile(
-    r"(?i)(fine_tuning\.jobs\.create|fine_tunes\.create|FineTuningJob|create_fine_tune|"
-    r"\.finetune\s*\(|SFTTrainer|\.push_to_hub\s*\()")
+    r"(?i)(fine_tuning\.jobs\.create|fine_tunes\.create|FineTuningJob|create_fine_tune|"  # orthosec: ignore — this IS the detector's own pattern
+    r"\.finetune\s*\(|SFTTrainer|\.push_to_hub\s*\()")  # orthosec: ignore — this IS the detector's own pattern
 # Training calls whose data may be poisoned.
 _TRAIN = re.compile(r"(?i)\b(Trainer\s*\(|\.fit\s*\(|\.train\s*\(|training_file\s*=|train_dataset\s*=)")
 # Untrusted data sources feeding training.

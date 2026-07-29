@@ -13,9 +13,10 @@ from typing import Iterable
 from orthosec.core.finding import Finding, Severity
 from orthosec.core.scanner import ScanContext
 from orthosec.detectors import register
+from orthosec.detectors._signals import strip_comments
 
 _UNSAFE_LOAD = {
-    "pickle deserialization": re.compile(r"(?i)\b(pickle\.load|pickle\.loads|cPickle)\b"),
+    "pickle deserialization": re.compile(r"(?i)\b(pickle\.load|pickle\.loads|cPickle)\b"),  # orthosec: ignore — this IS the detector's own pattern
     "torch.load (pickle-backed)": re.compile(r"(?i)\btorch\.load\s*\("),
     "joblib.load": re.compile(r"(?i)\bjoblib\.load\s*\("),
     "yaml.load (unsafe)": re.compile(r"(?i)\byaml\.load\s*\((?!.*Loader\s*=\s*yaml\.SafeLoader)"),
@@ -39,8 +40,10 @@ class UnsafeModelLoadDetector:
             text = ctx.read(path)
             if not text:
                 continue
-            lines = text.splitlines()
+            raw_lines = text.splitlines()
+            lines = strip_comments(text).splitlines()   # a `# torch.load()` mention is not a load
             for lineno, line in enumerate(lines, start=1):
+                raw = raw_lines[lineno - 1] if lineno - 1 < len(raw_lines) else line
                 for kind, pat in _UNSAFE_LOAD.items():
                     if not pat.search(line):
                         continue
@@ -56,7 +59,7 @@ class UnsafeModelLoadDetector:
                         atlas=["AML.T0010", "AML.T0018"],
                         file=ctx.rel(path),
                         line=lineno,
-                        evidence=line.strip()[:200],
+                        evidence=raw.strip()[:200],
                         remediation=(
                             "Prefer safetensors; for torch use weights_only=True; for yaml use "
                             "SafeLoader. Only load artifacts from trusted, integrity-checked sources."
@@ -73,7 +76,7 @@ class UnsafeModelLoadDetector:
                         atlas=["AML.T0010"],
                         file=ctx.rel(path),
                         line=lineno,
-                        evidence=line.strip()[:200],
+                        evidence=raw.strip()[:200],
                         remediation="Pin revision=<commit-sha> so a repointed remote can't swap weights.",
                         confidence=0.5,
                     )

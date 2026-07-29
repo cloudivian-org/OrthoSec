@@ -4,6 +4,18 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.12.3] — 2026-07-29
+
+### Fixed — precision (found by dogfooding OrthoSec on its own code)
+- **`unsafe-model-load` now ignores comments.** A `# torch.load(...)` / `# pickle.load(...)`
+  mention in a comment no longer fires (it strips comments before matching, like the other
+  behavior detectors) — a real general false positive, not just self-referential.
+- **OrthoSec now scans itself clean (100/100, grade A).** The remaining self-matches — the
+  scanner's own detector *pattern strings* (e.g. `cPickle` in a regex) and two
+  `client.messages.create(**base)` calls where `max_tokens` is set via `**base` — are
+  documented inline suppressions. The dogfood workflow (`orthosec.yml`) is tightened back to
+  `fail-on: high` now that the product source is genuinely clean.
+
 ### Added
 - **VS Code extension** (`editors/vscode`). A thin TypeScript client that runs the installed
   `orthosec` CLI (`--json`) and renders its deterministic findings as inline diagnostics

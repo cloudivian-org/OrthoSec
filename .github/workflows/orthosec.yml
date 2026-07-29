@@ -25,10 +25,10 @@ jobs:
         with:
           path: "."
           profile: "appsec"
-          # OrthoSec is a scanner, not an AI product — its own detector/remediation code
-          # contains the pattern strings it looks for. Dogfood (upload SARIF) without gating
-          # this repo's build on self-referential matches. `.orthosec.yml` excludes fixtures.
-          fail-on: "none"
+          # Real dogfood gate: OrthoSec scans itself and the product source is clean
+          # (self-referential pattern-definition matches are inline-suppressed; `.orthosec.yml`
+          # excludes the intentional-vuln fixtures). Fail the build on a real HIGH+ finding.
+          fail-on: "high"
           sarif-file: "orthosec.sarif"
           # On a PR, scan only what changed vs the base branch; on push, scan everything.
           diff-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}

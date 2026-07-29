@@ -171,11 +171,11 @@ def _call(client, model: str, prompt: str, system: str | None = None, max_tokens
     base = dict(model=model, max_tokens=max_tokens, system=system or _SYSTEM,
                 messages=[{"role": "user", "content": prompt}])
     try:
-        return client.messages.create(
+        return client.messages.create(  # orthosec: ignore — max_tokens is set in **base
             thinking={"type": "adaptive"}, output_config={"effort": "high"}, **base
         )
     except Exception:
-        return client.messages.create(**base)
+        return client.messages.create(**base)  # orthosec: ignore — max_tokens is set in **base
 
 
 def _text_of(resp) -> str:

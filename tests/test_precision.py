@@ -242,5 +242,17 @@ class TestLLM10TestPathPrecision(unittest.TestCase):
         self.assertIn("LLM10", _cats(_scan(self._CALL, "test_x.py")))
 
 
+class TestUnsafeLoadCommentPrecision(unittest.TestCase):
+    """A `torch.load`/`pickle` mention in a COMMENT is prose, not a load (found by scanning
+    OrthoSec's own code — a `# torch.load(...)` doc comment was firing)."""
+
+    def test_comment_mention_not_flagged(self):
+        self.assertNotIn("LLM03", _cats(_scan("x = 1  # torch.load(f) is unsafe here\n")))
+        self.assertNotIn("LLM03", _cats(_scan("# pickle.load(f) — never do this\nx = 2\n")))
+
+    def test_real_load_still_flagged(self):
+        self.assertIn("LLM03", _cats(_scan("import torch\nm = torch.load(f)\n")))
+
+
 if __name__ == "__main__":
     unittest.main()
