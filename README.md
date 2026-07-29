@@ -392,7 +392,7 @@ Every command supports `--help` — run `orthosec <command> --help` for its full
 | `ORTHOSEC_DISCOVER` · `ORTHOSEC_DISCOVER_MAX_FILES` · `ORTHOSEC_DISCOVER_GATE` | scan | `1` enables model-led discovery of extra `advisory` findings (max files, default 8); `_GATE=1` lets advisory findings fail `--fail-on` (default: they don't). Needs a model backend |
 | `ORTHOSEC_OSV` · `ORTHOSEC_OSV_TIMEOUT` | scan | `1` enriches pinned AI/ML deps with **known CVEs** from OSV.dev (deterministic, one network call, fails open); per-call timeout (default 8s) |
 | `ORTHOSEC_MODEL` | intel | Override the model id |
-| `ORTHOSEC_JOBS` · `ORTHOSEC_PARALLEL_FORK` | scan | Worker processes (same as `--jobs/-j`; default auto — parallel on large trees, serial on small, `1` forces serial). Findings are byte-identical to a serial scan. On Linux workers `fork` and inherit the prebuilt cross-module index for free; set `_FORK=1` to opt into fork on macOS too (off by default — Python disables fork there for safety) |
+| `ORTHOSEC_JOBS` | scan | Worker processes (same as `--jobs/-j`; default auto — parallel on large trees, serial on small, `1` forces serial). Findings are **byte-identical to a serial scan** (guaranteed by `tests/test_parallel.py`). Both the cross-module index build and the scan are sharded across processes (~4× on a large tree) |
 | `ORTHOSEC_NO_EXEC` | scan / watch | `1` disables the intel layer (equivalent to `--no-exec`) |
 | `ORTHOSEC_REPORT` | scan | Report path, or `off`/`none`/`0` to disable the auto-report |
 | `ORTHOSEC_OPEN` | scan | `1` opens the report in a browser after the scan |

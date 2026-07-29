@@ -1,39 +1,30 @@
 """Process-parallel scanning.
 
 The taint hot loop is pure-Python AST traversal — CPU-bound and GIL-bound, so
-threads don't help; we shard across PROCESSES. Each worker emits findings only for
-the files in its shard but resolves cross-module context against the FULL file set,
-so the union of worker findings is byte-for-byte the same set a serial scan
-produces — just partitioned by which file owns each finding. The parent still does
-the one authoritative suppress + sort + score pass, so ordering is deterministic.
+threads don't help; we shard across PROCESSES. Two parallel phases, both sharded:
 
-Sharing the cross-module index — the important part:
-  Naively, every worker would rebuild the project index (re-parse ALL files) before
-  touching its shard, which is O(files x workers) and caps the speedup near 2x. On
-  Linux we instead build the index ONCE in the parent and `fork`: children inherit
-  the built index AND the warmed parse cache via copy-on-write, for free, so a worker
-  only walks the taint graph for its shard. macOS/Windows default to `spawn` (fork is
-  unsafe there), where the inheritance trick is impossible — those fall back to
-  rebuild-per-worker, still correct, just a smaller win.
+  Phase A (build): workers parse their file shard and emit small picklable index
+    records; the parent reduces them into a SlimIndex — the project-wide cross-module
+    summaries/imports/tool-reachability, equivalent to a serial build_index for every
+    query the detectors make (see project.assemble_slim). This is what removes the
+    old serial ~4s "build the index in the parent" floor.
+  Phase B (scan): workers run every detector over their shard, resolving cross-module
+    context against the shared SlimIndex (passed in), and emit findings only for their
+    shard. The union across disjoint shards is byte-for-byte the same finding set a
+    serial scan produces, so the parallel scan is provably identical to serial.
 
-Fail-open: any problem spinning up the pool raises, and the caller runs serially.
+Because the SlimIndex is picklable, both phases work the same under fork and spawn —
+no per-worker index rebuild, no fork-inheritance tricks. Fail-open: any pool problem
+raises and the caller runs serially.
 """
 from __future__ import annotations
 
-import multiprocessing
 import os
-import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-# Below this many files the process startup cost (and, on spawn, per-worker index
-# rebuild) outweighs the parallel win, so the caller stays serial.
+# Below this many files the process startup cost outweighs the parallel win.
 MIN_FILES_FOR_PARALLEL = 200
-
-# Set in the parent BEFORE the pool is created; fork children inherit it via
-# copy-on-write. Under spawn the module is re-imported fresh, so it stays None and
-# the worker rebuilds the index itself.
-_SHARED_INDEX = None
 
 
 def resolve_jobs(n_files: int, requested) -> int:
@@ -52,43 +43,18 @@ def resolve_jobs(n_files: int, requested) -> int:
     if n_files < MIN_FILES_FOR_PARALLEL:
         return 1
     cores = os.cpu_count() or 1
-    # Fork shares the prebuilt index, so more workers keep paying off; spawn rebuilds
-    # the index per worker, so returns flatten fast — cap it lower to avoid wasted work.
-    cap = 8 if _use_fork() else 4
-    return max(1, min(cores - 1, cap))
+    return max(1, min(cores - 1, 8))
 
 
-def _use_fork() -> bool:
-    """Fork lets children inherit the prebuilt index for free. It is the default and
-    safe on Linux; Python disables it by default on macOS (ObjC fork-safety) so we
-    only use it there when explicitly opted in via ORTHOSEC_PARALLEL_FORK=1."""
-    if "fork" not in multiprocessing.get_all_start_methods():
-        return False
-    if sys.platform.startswith("linux"):
-        return True
-    return os.environ.get("ORTHOSEC_PARALLEL_FORK") == "1"
+def _extract(root_str: str, paths: list):
+    """Phase-A worker: parse a file shard → picklable index records."""
+    from orthosec.analysis.project import extract_records
+    return extract_records(Path(root_str), paths)
 
 
-def _prewarm_index(ctx):
-    """Build the Python cross-module index + tool reachability once. This parses every
-    .py file (warming the module-global parse cache too) and precomputes the reach
-    sets, so fork children inherit a fully-populated, query-only index."""
-    from orthosec.analysis.project import get_index, _tool_reachability
-    idx = get_index(ctx)
-    try:
-        _tool_reachability(idx)  # populate idx._tool_reach so children need no func_nodes
-    except Exception:
-        pass
-    return idx
-
-
-def _scan_shard(root_str: str, all_files: list, shard_files: list):
-    """Worker: run every builtin detector, emitting findings for this shard only.
-
-    Under fork, `_SHARED_INDEX` is the parent's prebuilt index (inherited), so we
-    reuse it instead of re-parsing every file. Under spawn it is None and the first
-    cross-module query rebuilds it from `all_files`.
-    """
+def _scan_shard(root_str: str, all_files: list, shard_files: list, slim):
+    """Phase-B worker: run every builtin detector, emitting findings for this shard
+    only, using the shared SlimIndex for Python cross-module context."""
     from orthosec.core.scanner import ScanContext
     from orthosec.detectors import load_builtin_detectors
 
@@ -97,8 +63,8 @@ def _scan_shard(root_str: str, all_files: list, shard_files: list):
         files=[Path(f) for f in all_files],
         shard=[Path(f) for f in shard_files],
     )
-    if _SHARED_INDEX is not None:
-        ctx._project_index = _SHARED_INDEX  # reuse parent's; no rebuild
+    if slim is not None:
+        ctx._project_index = slim  # skip the per-worker Python index rebuild
 
     detectors = load_builtin_detectors()
     findings, errors, ran = [], [], []
@@ -117,31 +83,29 @@ def run_parallel(root_path: Path, files: list, jobs: int):
     Round-robin sharding (files[i::jobs]) balances load even when file sizes vary.
     Raises on pool failure so the caller can fall back to a serial scan.
     """
-    global _SHARED_INDEX
     all_files = [str(p) for p in files]
-    shards = [all_files[i::jobs] for i in range(jobs)]
-    shards = [s for s in shards if s]  # drop empty shards (fewer files than workers)
-
-    mp_ctx = None
-    if _use_fork():
-        mp_ctx = multiprocessing.get_context("fork")
-        # Build the index once in the parent; fork children inherit it (and the warm
-        # parse cache) copy-on-write, so no worker re-parses the whole tree.
-        from orthosec.core.scanner import ScanContext
-        parent_ctx = ScanContext(root=root_path, files=[Path(f) for f in all_files])
-        _SHARED_INDEX = _prewarm_index(parent_ctx)
+    py_files = [f for f in all_files if f.lower().endswith(".py")]
 
     findings, errors, ran = [], [], []
-    try:
-        with ProcessPoolExecutor(max_workers=jobs, mp_context=mp_ctx) as ex:
-            futures = [ex.submit(_scan_shard, str(root_path), all_files, shard)
-                       for shard in shards]
-            for fut in futures:
-                f_findings, f_errors, f_ran = fut.result()
-                findings.extend(f_findings)
-                errors.extend(f_errors)
-                if not ran:
-                    ran = f_ran  # identical across workers (same builtin detector set)
-    finally:
-        _SHARED_INDEX = None
+    with ProcessPoolExecutor(max_workers=jobs) as ex:
+        # Phase A: build the Python cross-module SlimIndex in parallel.
+        slim = None
+        if py_files:
+            from orthosec.analysis.project import assemble_slim
+            pre_shards = [py_files[i::jobs] for i in range(jobs)]
+            pre_shards = [s for s in pre_shards if s]
+            records = []
+            for fut in [ex.submit(_extract, str(root_path), s) for s in pre_shards]:
+                records.extend(fut.result())
+            slim = assemble_slim(records)
+
+        # Phase B: scan shards, sharing the SlimIndex.
+        shards = [all_files[i::jobs] for i in range(jobs)]
+        shards = [s for s in shards if s]
+        for fut in [ex.submit(_scan_shard, str(root_path), all_files, s, slim) for s in shards]:
+            f_findings, f_errors, f_ran = fut.result()
+            findings.extend(f_findings)
+            errors.extend(f_errors)
+            if not ran:
+                ran = f_ran  # identical across workers (same builtin detector set)
     return findings, errors, ran

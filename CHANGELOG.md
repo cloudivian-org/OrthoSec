@@ -6,15 +6,19 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ### Added — performance
 - **Process-parallel scanning (`--jobs/-j N`, env `ORTHOSEC_JOBS`).** The taint hot loop is
-  pure-Python AST traversal (CPU- and GIL-bound), so scans now shard files across worker
-  processes. Each worker emits findings only for its shard but resolves cross-module context
-  against the full file set, so results are **byte-for-byte identical to a serial scan** —
-  guaranteed by a new `tests/test_parallel.py` that diffs serial vs parallel finding sets
-  (including a cross-module case split across shards). Default is auto (parallel on large
-  trees, serial on small); `--jobs 1` forces serial. On Linux workers `fork` and inherit the
-  prebuilt cross-module index + warm parse cache copy-on-write (no per-worker rebuild);
-  macOS/Windows use `spawn` (opt into fork with `ORTHOSEC_PARALLEL_FORK=1`). ~2.5–2.7× on a
-  large heavy tree; fully fail-open (any pool problem falls back to a serial scan).
+  pure-Python AST traversal (CPU- and GIL-bound), so scans now shard across worker processes
+  in **two parallel phases**: (A) workers parse their file shard and emit small picklable
+  index records, and the parent reduces them into a **SlimIndex** — the project-wide
+  cross-module summaries/imports/tool-reachability, provably equivalent to the serial
+  `build_index` (`tests/test_slimindex.py`); (B) workers run every detector over their shard,
+  resolving cross-module context against the shared SlimIndex, emitting findings only for
+  their shard. Both phases are sharded, so there is no serial index-build floor. Results are
+  **byte-for-byte identical to a serial scan** — guaranteed by `tests/test_parallel.py`, which
+  diffs serial vs parallel finding sets including a cross-module case split across shards.
+  Because the SlimIndex is picklable, fork and spawn behave identically (no fork-inheritance
+  tricks). Default is auto (parallel on large trees, serial on small); `--jobs 1` forces
+  serial. **~4× on a large heavy tree** (jobs=8); fully fail-open (any pool problem falls back
+  to a serial scan).
 
 ### Fixed — CI
 - **py3.9 C# grammar pinned to `tree-sitter-c-sharp==0.23.1`.** Both 0.23.4 and 0.23.5 ship
