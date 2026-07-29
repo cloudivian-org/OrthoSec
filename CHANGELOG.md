@@ -4,6 +4,17 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.12.2] — 2026-07-29
+
+### Performance
+- **~2x faster scans on large repos via a parse cache.** Profiling a LibreChat scan
+  (65.8s) showed the same file was parsed ~5× per scan — each dataflow detector and the
+  cross-module index re-parsed it. A shared, bounded content-keyed parse cache
+  (`orthosec/analysis/_parsecache.py`, wired into every analyzer's `_parse` / `safe_parse`)
+  collapses that to one parse per file. **LibreChat: 65.8s → 30.8s (-53%), identical
+  findings.** Bounded (clears at 8192 entries) so a long-running `watch` / SDK process can't
+  grow unboundedly. Results are unchanged — a parse tree is a pure function of its input.
+
 ## [0.12.1] — 2026-07-29
 
 ### Fixed — precision

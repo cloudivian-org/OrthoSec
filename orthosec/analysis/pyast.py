@@ -216,12 +216,19 @@ def has_confirmation(fn: ast.AST) -> bool:
     return False
 
 
+_PARSE_CACHE: dict = {}
+
+
 def safe_parse(source: str):
     """Parse Python source; return the tree or None on syntax error."""
-    try:
-        return ast.parse(source)
-    except (SyntaxError, ValueError):
-        return None
+    from orthosec.analysis._parsecache import cached
+
+    def _do():
+        try:
+            return ast.parse(source)
+        except (SyntaxError, ValueError):
+            return None
+    return cached(_PARSE_CACHE, source, "", _do)
 
 
 # --- LLM05 taint analysis: model output -> dangerous sink -------------------

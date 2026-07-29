@@ -75,17 +75,24 @@ def _parser():
     return parser
 
 
+_PARSE_CACHE: dict = {}
+
+
 def _parse(src: str):
-    parser = _parser()
-    if parser is None:
-        return None
-    try:
-        root = parser.parse(bytes(src, "utf-8")).root_node
-    except Exception:
-        return None
-    if root is None or (root.has_error and root.child_count == 0):
-        return None
-    return root
+    from orthosec.analysis._parsecache import cached
+
+    def _do():
+        parser = _parser()
+        if parser is None:
+            return None
+        try:
+            root = parser.parse(bytes(src, "utf-8")).root_node
+        except Exception:
+            return None
+        if root is None or (root.has_error and root.child_count == 0):
+            return None
+        return root
+    return cached(_PARSE_CACHE, src, "", _do)
 
 
 def _walk(node):
