@@ -1,6 +1,15 @@
-# Drop this into any AI product repo to gate PRs on AI-security risk.
-# On a pull request: scans only the changed files (fast) and posts findings inline
-# via GitHub code scanning. On push to main: full scan. SARIF is uploaded either way.
+# OrthoSec dogfood gate — OrthoSec scans its own source on every push/PR.
+#
+# This gate installs the CODE IN THIS CHECKOUT (editable), not the published PyPI
+# release, so it tests exactly what is being committed rather than the last tag
+# (which always lags HEAD). Self-referential pattern-definition matches are
+# inline-suppressed and `.orthosec.yml` excludes the intentional-vuln fixtures, so a
+# HIGH+ finding here is a real regression in the product source. SARIF is uploaded to
+# code scanning either way.
+#
+# NOTE: this is intentionally separate from the composite action (action.yml), which
+# installs from PyPI and is what downstream consumers use. Dogfooding HEAD and
+# integration-testing the published action are two different concerns.
 name: OrthoSec
 
 on:
@@ -20,18 +29,29 @@ jobs:
         with:
           fetch-depth: 0    # full history so --diff can compare against the PR base
 
-      - name: OrthoSec AI Security Scan
-        uses: cloudivian-org/OrthoSec@main
+      - uses: actions/setup-python@v5
         with:
-          path: "."
-          profile: "appsec"
-          # Real dogfood gate: OrthoSec scans itself and the product source is clean
-          # (self-referential pattern-definition matches are inline-suppressed; `.orthosec.yml`
-          # excludes the intentional-vuln fixtures). Fail the build on a real HIGH+ finding.
-          fail-on: "high"
-          sarif-file: "orthosec.sarif"
-          # On a PR, scan only what changed vs the base branch; on push, scan everything.
-          diff-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          python-version: "3.12"
+
+      - name: Install OrthoSec (this checkout)
+        run: |
+          python -m pip install --upgrade pip
+          # Language extras so the self-scan analyzes every source file precisely
+          # (not regex-fallback), matching how the product actually runs.
+          pip install -e ".[intel,js,ts,go,java,kotlin,csharp,ruby,php,rust]"
+
+      - name: OrthoSec AI Security Scan (dogfood HEAD)
+        run: |
+          # On a PR, scan only what changed vs the base; on push, scan everything.
+          DIFF=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DIFF="--diff ${{ github.event.pull_request.base.sha }}"
+          fi
+          orthosec scan . \
+            --profile appsec \
+            --fail-on high \
+            --sarif orthosec.sarif \
+            --no-report --no-exec $DIFF
 
       - name: Upload SARIF to code scanning
         if: always()   # upload findings even when the scan fails the gate

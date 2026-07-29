@@ -44,8 +44,11 @@ go = ["tree-sitter>=0.21", "tree-sitter-go>=0.21"]
 java = ["tree-sitter>=0.21", "tree-sitter-java>=0.21"]
 # Precise Kotlin (.kt) analysis via tree-sitter.
 kotlin = ["tree-sitter>=0.21", "tree-sitter-kotlin>=1.1"]
-# Precise C# (.cs) analysis via tree-sitter.
-csharp = ["tree-sitter>=0.21", "tree-sitter-c-sharp>=0.21,!=0.23.5"]
+# Precise C# (.cs) analysis via tree-sitter. Pinned to 0.23.1: both 0.23.4 and 0.23.5
+# ship binaries missing `_tree_sitter_c_sharp_external_scanner_create`, so dlopen fails
+# and the analyzer silently degrades to regex (misses C# cases). 0.23.1 is an abi3 wheel
+# (one wheel covers cp39–cp312) that loads cleanly against tree-sitter core 0.23.x.
+csharp = ["tree-sitter>=0.21", "tree-sitter-c-sharp==0.23.1"]
 # Precise Ruby (.rb) analysis via tree-sitter.
 ruby = ["tree-sitter>=0.21", "tree-sitter-ruby>=0.21"]
 # Precise PHP (.php) analysis via tree-sitter.
@@ -57,7 +60,7 @@ rust = ["tree-sitter>=0.21", "tree-sitter-rust>=0.21,<0.23.3"]
 semgrep = ["semgrep>=1.0"]
 dev = ["pytest>=8", "anthropic>=0.40", "rich>=13", "esprima>=4.0",
        "tree-sitter>=0.21", "tree-sitter-typescript>=0.21", "tree-sitter-go>=0.21",
-       "tree-sitter-java>=0.21", "tree-sitter-kotlin>=1.1", "tree-sitter-c-sharp>=0.21,!=0.23.5",
+       "tree-sitter-java>=0.21", "tree-sitter-kotlin>=1.1", "tree-sitter-c-sharp==0.23.1",
        "tree-sitter-ruby>=0.21", "tree-sitter-php>=0.22", "tree-sitter-rust>=0.21,<0.23.3"]
 
 [project.scripts]
