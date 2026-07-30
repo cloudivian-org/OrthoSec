@@ -150,3 +150,34 @@ Parity precision **6/9 → 100%** after the fixes below.
 Each is locked by a safe-lookalike benchmark case (`llm06_safe_rust_import.rs`,
 `llm06_safe_rust_toolspec.rs`); the suite stays at 100% precision / 100% recall / 0 FP.
 Reproducible: `GITHUB_TOKEN=… python validation/parity_audit.py --seed 0`.
+
+## Full-detector real-world audit (2026-07-30)
+
+The parity audit was extended to capture code context for every detector and triage all
+findings across repeated seeded-random samples (~36 repos / 0.85–2.2M LOC each) in the six
+pattern-matched languages. Every finding was labeled TP/FP from its code context; **~75
+false positives were root-caused and fixed at the analyzer level** (not suppressed), each
+locked by a regression test or a benchmark safe-lookalike. The suite stays 100% precision /
+100% recall / 0 FP throughout, and confirmed true positives still fire.
+
+| Detector | FP class found | Fix |
+|---|---|---|
+| tool-exposure (LLM06) | `ToolSpec` matched an internal struct; a sink token on an `import`/`use` line; Rust `reqwest::` crate path | drop `ToolSpec` marker; skip import lines; require a `reqwest::` call site |
+| output-handling (LLM05) | PHP `db_update`/`db_insert` (prepared statements) as SQL sinks; a custom TS `escape*` sanitizer; a Rust `Command::output()` bound to `output` | `prepare` is not a raw-SQL sink; recognize `escape*`/`sanitize*` wrappers; process output isn't model output |
+| secrets (LLM02) | placeholder keys (`sk-…aaaa…bbbb`, `abcdef…`), `env(VAR)` refs, keys inside inline `#[test]`/`_spec` blocks | entropy/placeholder filter; env/interpolation refs; inline-test detection |
+| prompt-hardening (LLM01) | LLM SDK adapters forwarding the caller's `system_prompt` (`const { system_prompt } = input`, `input.SystemPrompt`) | the system prompt is not untrusted user input — require an identifier target; skip `*.system_prompt` field pass-throughs (TS/Go/Rust) |
+| unbounded-consumption (LLM10) | TS/JS `create(varRequest)` where the cap is in the builder | only judge inline request literals (matches the Go analyzer's rule) |
+
+Reproducible: `GITHUB_TOKEN=… python validation/parity_audit.py --seed 0`. A follow-up
+verification run confirmed the fixed classes do not recur; remaining findings are genuine
+(an AI coding agent running model-generated shell commands) or borderline library-design
+surfaces (a caller-supplied `prompt` parameter reaching a system prompt).
+
+### Known depth gap (honest)
+
+LLM06 and LLM10 in the six non-AST languages use tight pattern-matching, now validated to
+~100% precision on real code. Upgrading them to full tree-sitter dataflow is future work:
+LLM10 needs interprocedural cap-tracking through builder chains (`.maxTokens(n).build()`) for
+the JVM/C#/Rust builder style, and LLM06 needs per-language tool-function + reachable-sink
+analysis (the depth the Python engine has). The pattern layer is the pragmatic, precise floor
+until then.
