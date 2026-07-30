@@ -41,6 +41,16 @@ benchmark safe-lookalike cases); suite stays 100% precision / 100% recall / 0 FP
 
 ## [0.13.0] — 2026-07-30
 
+### Changed — LLM10 upgraded from pattern to AST in six languages
+- **Unbounded-consumption (LLM10) now uses tree-sitter dataflow for Java/Kotlin/C#/Ruby/PHP/
+  Rust** (was regex). A new shared core (`analysis/_unbounded.py`) scopes the output-cap check
+  precisely: to the inline request literal for the literal-style languages (PHP array, Ruby
+  hash) and to the enclosing method's builder chain for the builder-style languages (JVM/C#/
+  Rust `.maxTokens(n).build()` / `new ChatCompletionOptions { MaxOutputTokenCount = n }`).
+  This removes the fragile per-SDK-spelling regex window and the interprocedural
+  cap-in-the-builder false positive. The regex remains a fallback when a grammar isn't
+  installed. Benchmark unchanged (100%/100%/0 FP); verified against real repos.
+
 ### Added — language coverage (LLM06 + LLM10 parity)
 - **LLM06 (Excessive Agency) now covers all 9 languages** (was Python + JS/TS). Extended the
   proximity-regex path to Go/Java/Kotlin/C#/Ruby/PHP/Rust with tight per-language dangerous-

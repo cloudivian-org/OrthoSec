@@ -221,8 +221,35 @@ def _find_sinks(scope, tainted, add):
             add(_line(n), "HTML injection (raw/html_safe)")
 
 
+# LLM10 (uncapped completion). ruby-openai: `client.chat(parameters: { ... })`; anthropic:
+# `client.messages.create(...)`. Judge only an inline hash request (fields visible); a
+# variable request may carry a cap set elsewhere, so it is not flagged.
+_RB_COMPLETION = re.compile(r"\.chat\(\s*parameters|\.messages\.create\b")
+_RB_CAP = re.compile(r"(?i)max_tokens")
+
+
 def unbounded_findings(src: str):
-    return None
+    root = _parse(src)
+    if root is None:
+        return None
+    out = []
+    for n in _walk(root):
+        if n.type != "call":
+            continue
+        full = _text(n)
+        if not _RB_COMPLETION.search(full):
+            continue
+        args = None
+        for c in n.children:
+            if c.type == "argument_list":
+                args = c
+                break
+        if args is None:
+            continue
+        has_inline = any(c.type == "hash" for c in _walk(args))
+        if has_inline and not _RB_CAP.search(_text(args)):
+            out.append(_line(n))
+    return out
 
 
 # ---- interprocedural (intra-file) -------------------------------------------

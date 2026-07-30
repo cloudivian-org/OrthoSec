@@ -320,8 +320,31 @@ def _iter_calls(scope):
         yield n, _call_method(n), args
 
 
+# LLM10 (uncapped completion). openai-php: `$client->chat()->create([...])` /
+# `->messages()->create([...])`; the request is an inline array literal whose keys we can
+# fully see. A bare-variable request (`->create($params)`) is not judged — a cap may live in
+# the builder — matching the Go analyzer's precision-over-recall rule.
+_PHP_COMPLETION = re.compile(r"->\s*(chat|messages)\(\)\s*->\s*create\s*\(")
+_PHP_CAP = re.compile(r"(?i)max_tokens")
+
+
 def unbounded_findings(src: str):
-    return None
+    root = _parse(src)
+    if root is None:
+        return None
+    out = []
+    for n in _walk(root):
+        if n.type != "member_call_expression" or _call_method(n).lower() != "create":
+            continue
+        if not _PHP_COMPLETION.search(_text(n)):
+            continue
+        args = n.child_by_field_name("arguments")
+        if args is None:
+            continue
+        has_inline = any(c.type == "array_creation_expression" for c in _walk(args))
+        if has_inline and not _PHP_CAP.search(_text(args)):
+            out.append(_line(n))
+    return out
 
 
 def output_findings(src: str, project=None):

@@ -12,6 +12,8 @@ in source order.
 """
 from __future__ import annotations
 
+import re
+
 from orthosec.analysis.java_ast import (
     _OUTPUT_NAME, _LLM_RECEIVER, _LLM_METHODS, _LLM_GATED, _SANITIZER, _DB_RECEIVER)
 
@@ -339,9 +341,16 @@ def _iter_calls(scope):
         yield n, chain[-1], arg_nodes
 
 
+# LLM10 (uncapped completion) — JVM SDKs, same call shape as Java. Cap (`.maxTokens(n)`) is
+# on the request builder in the same function; flag only when no cap keyword is in it.
+_KT_COMPLETION = re.compile(r"\.(completions|messages)\(\)\s*\.\s*create\s*\(")
+_KT_CAP = re.compile(r"(?i)(max_?tokens|max_?output_?tokens|max_?completion_?tokens)")
+
+
 def unbounded_findings(src: str):
-    """Kotlin LLM10 deferred (builder-configured cap, like Java)."""
-    return None
+    from orthosec.analysis._unbounded import builder_style
+    return builder_style(_parse, _walk, _text, _line, src,
+                         {"call_expression"}, _KT_COMPLETION, _KT_CAP, _SCOPE_TYPES)
 
 
 def output_findings(src: str, project=None):

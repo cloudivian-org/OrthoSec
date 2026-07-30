@@ -226,9 +226,18 @@ def _propagate_from(scope, seed, returns_out=()):
     return _fixpoint(_decls(scope), set(seed), returns_out)
 
 
+# LLM10 (uncapped completion). OpenAI .NET: `client.CompleteChat(messages[, options])`;
+# Anthropic.SDK: `client.Messages.Create(...)`. The cap is a `MaxOutputTokenCount` /
+# `MaxTokens` on a ChatCompletionOptions built in the same method — so flag a completion call
+# only when no cap keyword appears anywhere in its enclosing method.
+_CS_COMPLETION = re.compile(r"\.(CompleteChat(Async)?|Messages\s*\.\s*Create|GetChatCompletions?)\b")
+_CS_CAP = re.compile(r"(?i)(maxoutputtoken|max_?tokens|max_?completion_?tokens)")
+
+
 def unbounded_findings(src: str):
-    """C# LLM10 (output-token cap) is options-object/builder-configured — deferred."""
-    return None
+    from orthosec.analysis._unbounded import builder_style
+    return builder_style(_parse, _walk, _text, _line, src,
+                         {"invocation_expression"}, _CS_COMPLETION, _CS_CAP, _SCOPE_TYPES)
 
 
 def _find_sinks(scope, tainted, add):

@@ -373,6 +373,20 @@ def _iter_calls(scope):
         yield n, chain[0], _args(n)
 
 
+# LLM10 (uncapped completion). async-openai / anthropic-sdk: `client.chat().create(req)` /
+# `client.messages().create(req)`. The cap (`.max_tokens(n)`) is on the request builder in the
+# same function; flag a completion call only when no cap keyword appears anywhere in it.
+_RS_COMPLETION = re.compile(r"\.(chat|messages)\(\)\s*\.\s*create\s*\(")
+_RS_CAP = re.compile(r"(?i)max_tokens")
+
+
+def unbounded_findings(src: str):
+    from orthosec.analysis._unbounded import builder_style
+    return builder_style(_parse, _walk, _text, _line, src,
+                         {"call_expression"}, _RS_COMPLETION, _RS_CAP,
+                         ("function_item", "closure_expression"))
+
+
 def output_findings(src: str, project=None):
     root = _parse(src)
     if root is None:

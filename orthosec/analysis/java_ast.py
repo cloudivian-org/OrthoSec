@@ -231,9 +231,18 @@ def _find_sinks(scope, tainted, add):
                 add(_line(n), "script execution (eval)")
 
 
+# LLM10 (uncapped completion). OpenAI Java: `client.chat().completions().create(params)`;
+# Anthropic: `client.messages().create(params)`. The cap is a `.maxTokens(n)` on the request
+# builder in the same method, so flag a completion call only when no cap keyword appears
+# anywhere in its enclosing method.
+_JAVA_COMPLETION = re.compile(r"\.(completions|messages)\(\)\s*\.\s*create\s*\(")
+_JAVA_CAP = re.compile(r"(?i)(max_?tokens|max_?output_?tokens|max_?completion_?tokens)")
+
+
 def unbounded_findings(src: str):
-    """Java LLM10 (output-token cap) is a model-builder concern, not per-call — deferred."""
-    return None
+    from orthosec.analysis._unbounded import builder_style
+    return builder_style(_parse, _walk, _text, _line, src,
+                         {"method_invocation"}, _JAVA_COMPLETION, _JAVA_CAP, _SCOPE_TYPES)
 
 
 # ---- interprocedural (intra-file) -------------------------------------------

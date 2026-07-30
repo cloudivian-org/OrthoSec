@@ -55,6 +55,21 @@ _LLM10_BY_SUFFIX = {
 }
 _GENERIC_SUFFIXES = set(_LLM10_BY_SUFFIX)
 
+# Suffix -> tree-sitter analyzer module name for the precise LLM10 AST path.
+_AST_MOD_NAME = {".java": "java_ast", ".kt": "kotlin_ast", ".cs": "csharp_ast",
+                 ".rb": "ruby_ast", ".php": "php_ast", ".rs": "rust_ast"}
+
+
+def _ast_mod(suffix):
+    name = _AST_MOD_NAME.get(suffix)
+    if not name:
+        return None
+    try:
+        import importlib
+        return importlib.import_module("orthosec.analysis." + name)
+    except Exception:
+        return None
+
 _CAP_FIX = ("Set max_tokens (and a request timeout). Cap per-user/token budgets and "
             "rate-limit to prevent denial-of-wallet.")
 _LOOP_FIX = ("Bound the loop: max iterations/steps, a wall-clock deadline, and a token "
@@ -148,11 +163,29 @@ class UnboundedConsumptionDetector:
         )
 
     def _scan_generic(self, ctx, path, text) -> Iterable[Finding]:
-        """Java/Kotlin/C#/Ruby/PHP/Rust: an SDK completion call with no output cap in its
-        argument window. Comments stripped so a commented-out call or a `// max_tokens`
-        note doesn't skew the result."""
-        call_re, cap_re = _LLM10_BY_SUFFIX[path.suffix.lower()]
+        """Java/Kotlin/C#/Ruby/PHP/Rust: an SDK completion call with no output cap.
+
+        Prefer the tree-sitter analyzer (`<lang>_ast.unbounded_findings`): it scopes the cap
+        check to the request literal (PHP/Ruby) or the enclosing method's builder (JVM/C#/
+        Rust), which is more precise than a line window. Fall back to the regex window only
+        when the grammar isn't installed or the file doesn't parse.
+        """
+        suffix = path.suffix.lower()
         raw = text.splitlines()
+        mod = _ast_mod(suffix)
+        if mod is not None and mod.available():
+            hits = mod.unbounded_findings(text)
+            if hits is not None:
+                for ln in hits:
+                    yield Finding(
+                        detector=self.id, rule_id="ORTHO-CONSUME-001",
+                        title="LLM call without an output-token cap", severity=Severity.MEDIUM,
+                        owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=ln,
+                        evidence=raw[ln - 1].strip()[:200] if 0 < ln <= len(raw) else "",
+                        remediation=_CAP_FIX, confidence=0.6)
+                return
+
+        call_re, cap_re = _LLM10_BY_SUFFIX[suffix]
         lines = strip_comments(text).splitlines()
         for lineno, line in enumerate(lines, start=1):
             if call_re.search(line):
