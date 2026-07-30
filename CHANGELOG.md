@@ -4,6 +4,8 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-07-30
+
 ### Added — language coverage (LLM06 + LLM10 parity)
 - **LLM06 (Excessive Agency) now covers all 9 languages** (was Python + JS/TS). Extended the
   proximity-regex path to Go/Java/Kotlin/C#/Ruby/PHP/Rust with tight per-language dangerous-
