@@ -218,6 +218,15 @@ def _expr_is_output_ip(node, tainted: set, returns_out) -> bool:
 
 # ---- public entry points ----------------------------------------------------
 
+def _has_inline_request(call) -> bool:
+    """True if a call passes an inline object literal — the request whose fields we can
+    fully see. When the request is a bare variable (built elsewhere), a cap may be set in
+    that builder, so judging it uncapped would be an interprocedural false positive (this
+    is the same rule the Go analyzer uses). Real audit: LLM SDK adapters call
+    `create(createParams)` with a variable that carries the caller's max_tokens."""
+    return any(arg.type == "object" for arg in _args(call))
+
+
 def unbounded_findings(src: str, tsx: bool = True):
     """Uncapped completion calls. Returns list of line numbers, or None to fall back."""
     root = _parse(src, tsx)
@@ -225,7 +234,8 @@ def unbounded_findings(src: str, tsx: bool = True):
         return None
     out = []
     for n in _walk(root):
-        if n.type == "call_expression" and _is_completion(_callee_chain(n)) and not _has_cap(n):
+        if (n.type == "call_expression" and _is_completion(_callee_chain(n))
+                and _has_inline_request(n) and not _has_cap(n)):
             out.append(_line(n))
     return out
 
@@ -600,7 +610,12 @@ def injection_findings(src: str, tsx: bool = True):
         for n in _walk(scope):
             if n.type == "variable_declarator":
                 name, val = n.child_by_field_name("name"), n.child_by_field_name("value")
-                if name is not None and _SYS_PROMPT_NAME.search(_text(name)) and _refs(val, untrusted):
+                # Require a simple identifier target. A destructuring pattern like
+                # `const { system_prompt } = input` EXTRACTS the system prompt from the
+                # input — it does not inject untrusted input into a system prompt (real
+                # audit: every LLM SDK adapter destructures its input this way).
+                if name is not None and name.type == "identifier" \
+                        and _SYS_PROMPT_NAME.search(_text(name)) and _refs(val, untrusted):
                     add(_line(n))
             elif n.type == "assignment_expression":
                 left = n.child_by_field_name("left")

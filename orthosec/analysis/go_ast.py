@@ -380,6 +380,10 @@ _REQ_ROOT = {"r", "req", "request"}
 _SYS_PROMPT_NAME = re.compile(
     r"(?i)(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt|"
     r"systeminstruction|instruction)")
+# A system-prompt FIELD access (`input.SystemPrompt`): copying the system prompt out of a
+# struct is a pass-through, not untrusted user input (real audit: LLM SDK adapters).
+_SYS_PROMPT_FIELD = re.compile(
+    r"(?i)\.\s*(systemprompt|system_prompt|systemmessage|system_message|sysprompt|sys_prompt)")
 # Trust-boundary / hardening language that mitigates injection (skip the scope).
 _INJ_HARDENING = re.compile(
     r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
@@ -479,7 +483,7 @@ def injection_findings(src: str):
                 rights = [c for c in R.children if c.type != ","]
                 if not any(_SYS_PROMPT_NAME.search(_text(l)) for l in lefts):
                     continue
-                if any(_refs(r, untrusted) for r in rights):
+                if any(_refs(r, untrusted) and not _SYS_PROMPT_FIELD.search(_text(r)) for r in rights):
                     add(_line(n))
             elif n.type == "composite_literal":
                 content = _lit_role_system_content(n)

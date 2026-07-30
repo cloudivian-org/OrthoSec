@@ -23,8 +23,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
   (invalid/expired/sample/fake/mock/should-not/…). A genuine high-entropy key in app code
   still fires.
 
-All locked by regression tests (`tests/test_secrets.py`, benchmark safe-lookalike cases);
-suite stays 100% precision / 100% recall / 0 FP. See `VALIDATION.md`.
+- **prompt-hardening (LLM01) false positives on SDK adapters eliminated.** An LLM SDK that
+  destructures/forwards its caller's `system_prompt` to a provider (`const { system_prompt }
+  = input`, `input.SystemPrompt`, `let LanguageModelInput { system_prompt } = input`) is not
+  "untrusted input reaching a system prompt" — the system prompt is not untrusted *user*
+  input (source == sink). Fixed in TS (require an identifier target, not a destructuring
+  pattern), Rust (same), and Go (skip a `system_prompt` field pass-through). Genuine
+  user-input → system-prompt still fires.
+- **unbounded-consumption (LLM10) interprocedural false positives eliminated in TS/JS.** A
+  completion call whose request is a *variable* (`create(createParams)`) may carry a cap set
+  in the builder, so it's no longer flagged — matching the rule the Go analyzer already used.
+  An inline uncapped request (`create({...})`) still fires.
+
+All locked by regression tests (`tests/test_secrets.py`, `tests/test_sdk_adapters.py`,
+benchmark safe-lookalike cases); suite stays 100% precision / 100% recall / 0 FP. See
+`VALIDATION.md`.
 
 ## [0.13.0] — 2026-07-30
 

@@ -402,6 +402,10 @@ _UNTRUSTED_NAME = re.compile(
 _SYS_PROMPT_NAME = re.compile(
     r"(?i)(system_?prompt|systemprompt|system_?message|systemmessage|sys_?prompt|"
     r"system_?instruction)")
+# A system-prompt FIELD access (`input.system_prompt`, `.systemPrompt`): reading the system
+# prompt out of a struct is a pass-through of the system prompt, not untrusted user input.
+_SYS_PROMPT_FIELD = re.compile(
+    r"(?i)\.\s*(system_?prompt|systemprompt|system_?message|systemmessage|sys_?prompt)")
 # rig `.preamble(x)`, a `.system(x)` builder, or `.content(x)` on a *System* message builder.
 _INJ_HARDENING = re.compile(
     r"(?i)(untrusted|do not follow|ignore (any|previous|all)|delimited by|<user_input>|"
@@ -463,11 +467,17 @@ def injection_findings(src: str):
         for n in _walk(scope):
             if n.type == "let_declaration":
                 pat, val = n.child_by_field_name("pattern"), n.child_by_field_name("value")
-                if pat is not None and _SYS_PROMPT_NAME.search(_text(pat)) and _refs(val, untrusted):
+                # Require a simple identifier target. `let LanguageModelInput { system_prompt,
+                # .. } = input` DESTRUCTURES the system prompt out of the input — it doesn't
+                # inject untrusted input into it (real audit: every Rust LLM SDK adapter).
+                if pat is not None and pat.type == "identifier" \
+                        and _SYS_PROMPT_NAME.search(_text(pat)) and _refs(val, untrusted) \
+                        and not _SYS_PROMPT_FIELD.search(_text(val)):
                     add(_line(n))
             elif n.type == "assignment_expression":
                 kids = [c for c in n.children if c.is_named]
-                if len(kids) == 2 and _SYS_PROMPT_NAME.search(_text(kids[0])) and _refs(kids[1], untrusted):
+                if len(kids) == 2 and _SYS_PROMPT_NAME.search(_text(kids[0])) \
+                        and _refs(kids[1], untrusted) and not _SYS_PROMPT_FIELD.search(_text(kids[1])):
                     add(_line(n))
             elif n.type == "call_expression":
                 arg = _is_system_prompt_sink(n)
