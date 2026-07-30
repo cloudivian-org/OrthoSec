@@ -63,7 +63,8 @@ _DANGEROUS_PHP = {
 _DANGEROUS_RUST = {
     _SHELL: re.compile(r"\bCommand::new\("),
     _FILE: re.compile(r"\b(fs::write\(|fs::remove_file\(|fs::remove_dir_all\()"),
-    _HTTP: re.compile(r"\breqwest::"),
+    # A call site, not a bare `use reqwest::...;` import path.
+    _HTTP: re.compile(r"\breqwest::(get|post|Client|blocking|ClientBuilder)\b"),
 }
 _DANGEROUS_PY = {  # only for the parse-error fallback path
     _SHELL: re.compile(r"(subprocess\.|os\.system\(|os\.popen\()"),
@@ -80,12 +81,17 @@ _DANGEROUS_BY_SUFFIX = {
 _REGEX_SUFFIXES = {".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs", ".rb", ".php", ".rs"}
 
 # Agent-tool markers across ecosystems: LangChain/-4j @tool/@Tool, OpenAI function tools,
-# Semantic Kernel [KernelFunction], MCP, Vercel AI, rig/rust #[tool], Bedrock ToolSpec.
+# Semantic Kernel [KernelFunction], MCP, Vercel AI, rig/rust #[tool]. Deliberately NOT
+# `ToolSpec` — it's a common plain-struct name (e.g. an internal CLI descriptor), and
+# matching it flagged non-agent code (real-world audit false positive).
 _TOOL_MARKER = re.compile(
     r"(?i)(@tool\b|@function_tool|@Tool\b|\[KernelFunction\]|KernelFunction\b|StructuredTool|"
     r"['\"]function['\"]\s*:|['\"]tools['\"]\s*:|register_tool|mcp\.tool|FunctionDeclaration|"
-    r"FunctionDefinition|ToolSpec|#\[tool\]|new\s+\w*Tool)")
+    r"FunctionDefinition|#\[tool\]|new\s+\w*Tool)")
 _CONFIRM = re.compile(r"(?i)(confirm|approval|human_in_the_loop|require_approval|allowlist|whitelist)")
+# An import/use line is never an actual sink call — a dangerous-looking token there
+# (e.g. `use reqwest::StatusCode;`) must not fire.
+_IMPORT_LINE = re.compile(r"^\s*(use|import|from|#include|require|require_relative)\b|^\s*using\s+[\w.]+\s*;")
 
 _REMEDIATION = (
     "Scope the tool to the minimum capability, add an allowlist, and gate "
@@ -149,6 +155,8 @@ class ToolExposureDetector:
         lines = text.splitlines()
         file_has_confirm = mitigation_present(text, _CONFIRM)
         for lineno, line in enumerate(lines, start=1):
+            if _IMPORT_LINE.match(line):        # an import is never a sink call
+                continue
             for capability, pat in dangerous.items():
                 if not pat.search(line):
                     continue

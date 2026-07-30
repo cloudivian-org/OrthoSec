@@ -4,6 +4,15 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Fixed — precision (found by a real-world 9-language parity audit)
+- **tool-exposure (LLM06) false positives eliminated on real code.** A 36-repo / 2.17M-LOC
+  audit across the six pattern-matched languages (`validation/parity_audit.py`) surfaced 3
+  false positives, all now fixed: (1) `ToolSpec` dropped as an agent-tool marker — it's a
+  common plain-struct name; (2) a dangerous token on an `import`/`use` line is no longer read
+  as a sink call (e.g. `use reqwest::StatusCode;`); (3) Rust `reqwest::` now requires a call
+  site, not the bare crate path. Parity-detector precision on the audit went 6/9 → 100%; each
+  fix is locked by a safe-lookalike benchmark case. See `VALIDATION.md`.
+
 ## [0.13.0] — 2026-07-30
 
 ### Added — language coverage (LLM06 + LLM10 parity)

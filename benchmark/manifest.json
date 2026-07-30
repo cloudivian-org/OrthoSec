@@ -518,6 +518,14 @@
     {
       "file": "cases/llm10_safe_rust.rs",
       "expect": []
+    },
+    {
+      "file": "cases/llm06_safe_rust_import.rs",
+      "expect": []
+    },
+    {
+      "file": "cases/llm06_safe_rust_toolspec.rs",
+      "expect": []
     }
   ]
 }

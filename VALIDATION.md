@@ -111,3 +111,42 @@ Triage is partly judgment and the corpus is curated, not random — this is meas
 hardening plus a multi-language benchmark, not an independently-audited precision figure on
 a random sample. Next step toward that: a larger, randomly-sampled corpus with third-party
 labeling. Everything here is reproducible: `orthosec scan <repo> --no-exec --json out.json`.
+
+## LLM06 / LLM10 nine-language parity audit (2026-07-30)
+
+When LLM06 (Excessive Agency) and LLM10 (Unbounded Consumption) were extended from
+Python-only to all nine languages, the new non-AST languages (Java/Kotlin/C#/Ruby/PHP/Rust)
+use pattern-matching — higher false-positive risk than the AST paths. So they were audited
+on real code before the claim was made.
+
+`validation/parity_audit.py` searched GitHub for real AI repos (openai/anthropic SDK usage)
+in each of the six languages, seeded-random-sampled six per language, cloned and scanned
+them, and captured code context for every LLM06/LLM10 finding for TP/FP triage.
+
+### Corpus
+
+- **36 repos** (6 each: Java, Kotlin, C#, Ruby, PHP, Rust), **2.17M LOC**, 0 clone/scan failures.
+- 119 total findings; **9 from the parity detectors** (7 tool-exposure, 2 unbounded-consumption).
+
+### Triage
+
+| # | Detector | Repo | Verdict |
+|---|---|---|---|
+| 1–2 | unbounded-consumption (C#) | AzureOpenAi-Chat, ai-rag-chat-bot | **TP** — real `CompleteChat` / `CompleteChatAsync` with no output cap |
+| 6–9 | tool-exposure (Python) | diffctx | **TP** — `@mcp.tool` functions reaching a subprocess sink cross-module |
+| 3 | tool-exposure (Rust) | grokers | **FP** — `ToolSpec` matched an internal struct, not an agent tool |
+| 4–5 | tool-exposure (Rust) | grokers | **FP** — fired on a `use reqwest::…;` *import* line, not an HTTP call |
+
+Parity precision **6/9 → 100%** after the fixes below.
+
+### False-positive sources fixed
+
+| FP source | Fix |
+|---|---|
+| `ToolSpec` treated as an agent-tool marker | dropped it — too common a plain-struct name |
+| a dangerous token on an `import` / `use` line read as a sink call | skip import/use lines in the regex sink scan |
+| Rust `reqwest::` matched the crate path anywhere | require a call site (`reqwest::get/post/Client/blocking/…`) |
+
+Each is locked by a safe-lookalike benchmark case (`llm06_safe_rust_import.rs`,
+`llm06_safe_rust_toolspec.rs`); the suite stays at 100% precision / 100% recall / 0 FP.
+Reproducible: `GITHUB_TOKEN=… python validation/parity_audit.py --seed 0`.
