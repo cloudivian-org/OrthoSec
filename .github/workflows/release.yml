@@ -80,5 +80,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       # Trusted Publishing (OIDC) + PEP 740 attestations (default on with id-token).
+      # skip-existing: a re-run (or an intermittent twine retry that already landed a
+      # file) is a no-op instead of a 400 "file already exists" that reds-X the job.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
