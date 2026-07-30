@@ -37,12 +37,15 @@ jobs:
       - name: Install OrthoSec
         run: pip install -e .
 
-      - name: Generate sample report
+      - name: Build docs site + live sample report
         run: |
-          mkdir -p _site
+          mkdir -p _site/report
+          # Docs landing page (self-contained, theme-aware).
+          cp site/index.html _site/index.html
+          # Live sample report, regenerated fresh from the bundled vulnerable demo.
           orthosec scan examples/vulnerable-agent \
             --profile appsec --fail-on none --no-exec \
-            --html _site/index.html
+            --html _site/report/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

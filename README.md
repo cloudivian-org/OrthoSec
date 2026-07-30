@@ -153,7 +153,7 @@ python -m orthosec.cli scan ./my-ai-app --html report.html
 
 **Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. A stacked severity bar and an OWASP LLM Top-10 coverage strip summarize posture at a glance, each dataflow finding shows its **taint path** (`source → sink`) and a **confidence** level, and a Print / Save-as-PDF button exports it. Open it in a browser, attach it to a ticket, or drop it in a board deck.
 
-**[▶ View a live sample report →](https://cloudivian-org.github.io/OrthoSec/)** — regenerated fresh from the bundled vulnerable demo on every push, so it's always a real product output. Or generate it locally: `orthosec scan examples/vulnerable-agent` opens `orthosec-report.html`.
+**[Docs site →](https://cloudivian-org.github.io/OrthoSec/)** · **[▶ Live sample report →](https://cloudivian-org.github.io/OrthoSec/report/)** — the report is regenerated fresh from the bundled vulnerable demo on every push, so it's always a real product output. Or generate it locally: `orthosec scan examples/vulnerable-agent` opens `orthosec-report.html`.
 
 ## Scheduling — continuous & daily reports
 
@@ -281,7 +281,9 @@ Python uses the stdlib `ast`; every other language uses **tree-sitter** (JavaScr
 | **PHP** | `orthosec[php]` | LLM01 · LLM05 — intra + interproc + **cross-module** | openai-php, LLPhant |
 | **Rust** | `orthosec[rust]` | LLM01 · LLM05 — intra + interproc + **cross-module** | async-openai, rig, ollama-rs, genai |
 
-Sinks recognized per language: model output into **shell/exec** (`os.system`, `exec.Command`, `Runtime.exec`, `Process.Start`, `Command::new`, `system`), **raw SQL** (`cursor.execute`, `db.Query`, `executeQuery`, `FromSqlRaw`, `$pdo->query`, `sqlx::query`, `whereRaw`), **eval**, and **HTML/XSS** (`innerHTML`, `dangerouslySetInnerHTML`, `Html.Raw`, `template.HTML`, `Html(…)`, `raw`/`echo`). Uncapped-completion (LLM10) is covered for Python, TypeScript/JS and Go.
+Sinks recognized per language: model output into **shell/exec** (`os.system`, `exec.Command`, `Runtime.exec`, `Process.Start`, `Command::new`, `system`), **raw SQL** (`cursor.execute`, `db.Query`, `executeQuery`, `FromSqlRaw`, `$pdo->query`, `sqlx::query`, `whereRaw`), **eval**, and **HTML/XSS** (`innerHTML`, `dangerouslySetInnerHTML`, `Html.Raw`, `template.HTML`, `Html(…)`, `raw`/`echo`).
+
+**LLM06 (Excessive Agency) and LLM10 (Unbounded Consumption) are covered in all nine languages.** They use precise AST where a dedicated analyzer exists (LLM06: Python; LLM10: Python, Go, TypeScript/JS) and tight, tool-marker/SDK-scoped pattern matching elsewhere — high-precision by construction (a bare shell call with no agent tool nearby, or a completion call with a cap nearby, does not fire).
 
 Detectors are plugins — drop a file in `orthosec/detectors/`, decorate with `@register`, done. See [CONTRIBUTING.md](CONTRIBUTING.md).
 

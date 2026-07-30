@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrthoSec — The AI Security Architect</title>
+<meta name="description" content="Open-source AI Security Architect: deterministic OWASP LLM Top-10 dataflow analysis across 9 languages, with an executive briefing layer. Zero false positives, benchmark-gated.">
+<style>
+  :root{
+    --bg:#f7f8f7; --panel:#ffffff; --ink:#12211a; --muted:#4a5b53; --line:#e2e7e3;
+    --accent:#1f7a44; --accent-ink:#0c3d21; --accent-soft:#e7f2ea;
+    --code-bg:#0f1a15; --code-ink:#d7e6dd;
+    --crit:#b3261e; --high:#c9591b; --med:#b7930a; --ok:#1f7a44;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0d1411; --panel:#131e19; --ink:#e6efe9; --muted:#93a89c; --line:#22322a;
+      --accent:#4ecb7f; --accent-ink:#bff3d1; --accent-soft:#15271d;
+      --code-bg:#0a120e; --code-ink:#cfe4d7;
+      --crit:#f2695f; --high:#f0975a; --med:#e6c445; --ok:#4ecb7f;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f7f8f7; --panel:#ffffff; --ink:#12211a; --muted:#4a5b53; --line:#e2e7e3;
+    --accent:#1f7a44; --accent-ink:#0c3d21; --accent-soft:#e7f2ea;
+    --code-bg:#0f1a15; --code-ink:#d7e6dd; --crit:#b3261e; --high:#c9591b; --med:#b7930a; --ok:#1f7a44;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0d1411; --panel:#131e19; --ink:#e6efe9; --muted:#93a89c; --line:#22322a;
+    --accent:#4ecb7f; --accent-ink:#bff3d1; --accent-soft:#15271d;
+    --code-bg:#0a120e; --code-ink:#cfe4d7; --crit:#f2695f; --high:#f0975a; --med:#e6c445; --ok:#4ecb7f;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
+    font-size:16px;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,kbd{font-family:var(--mono);font-size:.9em}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  .layout{display:grid;grid-template-columns:220px 1fr;gap:48px;align-items:start}
+
+  /* header */
+  header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  header.top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:18px}
+  .brand .mark{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:15px}
+  .navlinks{display:flex;gap:20px;align-items:center;font-size:14px}
+  .navlinks a{color:var(--muted);font-weight:500}
+  .navlinks a:hover{color:var(--ink);text-decoration:none}
+
+  /* hero */
+  .hero{padding:64px 0 40px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600}
+  .hero h1{font-size:clamp(32px,5vw,52px);line-height:1.05;letter-spacing:-.03em;margin:14px 0 12px;
+    text-wrap:balance;font-weight:800}
+  .hero p.lede{font-size:clamp(17px,2.2vw,21px);color:var(--muted);max-width:60ch;margin:0 0 26px}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:9px;
+    font-weight:600;font-size:15px;border:1px solid var(--line)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.primary:hover{text-decoration:none;filter:brightness(1.06)}
+  .btn.ghost{background:var(--panel);color:var(--ink)}
+  .btn.ghost:hover{text-decoration:none;border-color:var(--accent)}
+  .install{margin-top:22px;background:var(--code-bg);color:var(--code-ink);border-radius:11px;
+    padding:16px 18px;font-family:var(--mono);font-size:14px;overflow-x:auto;border:1px solid var(--line);
+    display:flex;align-items:center;gap:12px}
+  .install .prompt{color:var(--accent);user-select:none}
+
+  .stats{display:flex;flex-wrap:wrap;gap:28px;margin-top:34px;padding-top:26px;border-top:1px solid var(--line)}
+  .stat b{display:block;font-size:26px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat span{font-size:13px;color:var(--muted)}
+
+  /* side nav */
+  nav.side{position:sticky;top:84px;font-size:14px;padding-top:8px}
+  nav.side ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  nav.side a{display:block;padding:6px 10px;border-radius:7px;color:var(--muted);font-weight:500}
+  nav.side a:hover{background:var(--accent-soft);color:var(--ink);text-decoration:none}
+  nav.side .grouplabel{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);padding:14px 10px 4px;opacity:.7}
+
+  main{min-width:0;padding-bottom:80px}
+  section{padding:38px 0;border-top:1px solid var(--line)}
+  section:first-of-type{border-top:none}
+  h2{font-size:26px;letter-spacing:-.02em;margin:0 0 8px;font-weight:700}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--accent);margin-right:10px;font-weight:600}
+  h3{font-size:17px;margin:26px 0 8px;letter-spacing:-.01em}
+  p{margin:0 0 14px;max-width:70ch}
+  .sub{color:var(--muted);max-width:70ch}
+
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:11px;padding:16px 18px;overflow-x:auto;
+    font-family:var(--mono);font-size:13.5px;line-height:1.55;border:1px solid var(--line);margin:14px 0}
+  pre .c{color:#7fa890}
+  .inline{background:var(--accent-soft);color:var(--accent-ink);padding:.12em .42em;border-radius:5px;
+    font-family:var(--mono);font-size:.85em}
+
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:11px;margin:16px 0}
+  table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel);font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--muted);position:sticky;top:0}
+  tr:last-child td{border-bottom:none}
+  td code{color:var(--accent-ink);background:var(--accent-soft);padding:.1em .4em;border-radius:4px}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 7px;
+    border-radius:20px;border:1px solid var(--line)}
+  .pill.ast{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+  .pill.pat{color:var(--med);border-color:color-mix(in srgb,var(--med) 40%,transparent)}
+  .pill.no{color:var(--muted);opacity:.6}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card p{font-size:14px;color:var(--muted);margin:0}
+  .card .k{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600}
+
+  .note{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
+    border-radius:11px;padding:14px 16px;font-size:14.5px;margin:16px 0}
+  .note b{color:var(--accent-ink)}
+
+  footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--muted);font-size:14px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+
+  @media (max-width:860px){
+    .layout{grid-template-columns:1fr;gap:0}
+    nav.side{display:none}
+    .navlinks a.hidephone{display:none}
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><span class="mark">◇</span> OrthoSec</div>
+    <div class="navlinks">
+      <a href="#quickstart">Quickstart</a>
+      <a href="#coverage" class="hidephone">Coverage</a>
+      <a href="#cli" class="hidephone">Reference</a>
+      <a href="report/">Live report</a>
+      <a href="https://github.com/cloudivian-org/OrthoSec">GitHub&nbsp;↗</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="hero">
+  <div class="eyebrow">The AI Security Architect · Open source</div>
+  <h1>Find the AI-specific risk in your product — deterministically.</h1>
+  <p class="lede">OrthoSec traces untrusted input and model output through your code across
+    <b>nine languages</b>, maps what it finds to the <b>OWASP LLM Top-10</b>, and writes an
+    executive briefing on top. A reproducible, benchmark-gated core — not a probabilistic guesser.</p>
+  <div class="cta">
+    <a class="btn primary" href="#quickstart">Get started</a>
+    <a class="btn ghost" href="report/">▶ See a live report</a>
+    <a class="btn ghost" href="https://github.com/cloudivian-org/OrthoSec">Star on GitHub</a>
+  </div>
+  <div class="install"><span class="prompt">$</span> pip install orthosec &nbsp;&amp;&amp;&nbsp; orthosec scan ./my-ai-app</div>
+
+  <div class="stats">
+    <div class="stat"><b>10 / 10</b><span>OWASP LLM Top-10 categories</span></div>
+    <div class="stat"><b>9</b><span>languages, dataflow-analyzed</span></div>
+    <div class="stat"><b>100% / 0</b><span>benchmark recall / false positives</span></div>
+    <div class="stat"><b>~4×</b><span>faster on large trees (parallel)</span></div>
+  </div>
+</div>
+</div>
+
+<div class="wrap">
+<div class="layout">
+  <nav class="side" aria-label="On this page">
+    <ul>
+      <div class="grouplabel">Start</div>
+      <li><a href="#why">Why OrthoSec</a></li>
+      <li><a href="#quickstart">Quickstart</a></li>
+      <li><a href="#profiles">Audience profiles</a></li>
+      <div class="grouplabel">Detection</div>
+      <li><a href="#coverage">What it detects</a></li>
+      <li><a href="#languages">Nine languages</a></li>
+      <li><a href="#trust">The trust model</a></li>
+      <div class="grouplabel">Use it</div>
+      <li><a href="#cli">CLI &amp; config</a></li>
+      <li><a href="#ci">CI / CD</a></li>
+      <li><a href="#private">Private repos</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="why">
+      <h2><span class="num">01</span>Why OrthoSec</h2>
+      <p class="sub">Generic SAST wasn't built for AI risk. It doesn't know that <i>model output</i>
+        is untrusted, that a <i>system prompt</i> is a trust boundary, or that an <i>agent tool</i>
+        that shells out is one injection away from RCE. OrthoSec is built around exactly those facts.</p>
+      <div class="cards">
+        <div class="card"><div class="k">Deterministic core</div><h3>Zero false positives, by design</h3>
+          <p>Dataflow taint analysis — not line-proximity regex. It fires only when the actual
+            untrusted data reaches the actual sink. Benchmark-gated at 100% precision.</p></div>
+        <div class="card"><div class="k">Reachability, not keywords</div><h3>Intra → interproc → cross-module</h3>
+          <p>Traces taint across function calls and import boundaries (including re-export chains),
+            respecting sanitizers and trust boundaries.</p></div>
+        <div class="card"><div class="k">Grounded LLM layer</div><h3>Executive briefing on top</h3>
+          <p>An optional model layer explains business impact and drafts fixes — grounded on the
+            deterministic findings, never the source of one.</p></div>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <h2><span class="num">02</span>Quickstart</h2>
+      <p class="sub">The core scanner needs no API key and no configuration.</p>
+<pre><span class="c"># install (add language extras you use)</span>
+pip install "orthosec[intel,ts,go,java,kotlin,csharp,ruby,php,rust]"
+
+<span class="c"># scan a local path — writes a self-contained HTML report</span>
+orthosec scan ./my-ai-app
+
+<span class="c"># scan across cores, gate CI on HIGH+, emit SARIF</span>
+orthosec scan . --jobs auto --fail-on high --sarif orthosec.sarif
+
+<span class="c"># clone &amp; scan a remote or private repo (credentials stay off argv/logs)</span>
+orthosec scan owner/repo --git-token-stdin</pre>
+      <div class="note"><b>Every scan writes an HTML report</b> — a self-contained, theme-aware file
+        with a built-in engineer / appsec / ciso / product toggle, taint paths, and a severity summary.
+        <a href="report/">See a live one →</a></div>
+    </section>
+
+    <section id="profiles">
+      <h2><span class="num">03</span>One scan, four lenses</h2>
+      <p class="sub">The same findings, re-framed for the reader. Pass <code class="inline">--profile</code>,
+        or flip it live in the HTML report.</p>
+      <div class="cards">
+        <div class="card"><div class="k">engineer</div><h3>Fix it</h3><p>File, line, taint path, and the concrete remediation.</p></div>
+        <div class="card"><div class="k">appsec</div><h3>Triage it</h3><p>OWASP LLM + MITRE ATLAS mapping, severity, confidence tier.</p></div>
+        <div class="card"><div class="k">ciso</div><h3>Report it</h3><p>Business risk, posture score, annualized loss exposure bands.</p></div>
+        <div class="card"><div class="k">product</div><h3>Ship it</h3><p>What blocks release and what's acceptable, in plain language.</p></div>
+      </div>
+    </section>
+
+    <section id="coverage">
+      <h2><span class="num">04</span>What it detects</h2>
+      <p class="sub">Full OWASP LLM Top-10 (2025) coverage — 11 built-in detectors, plus an optional
+        deterministic Semgrep engine for general code-security rules.</p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Detector</th><th>OWASP</th><th>Catches</th></tr></thead>
+        <tbody>
+          <tr><td><code>prompt-hardening</code></td><td>LLM01 / 07</td><td>Untrusted input concatenated into prompts; secrets in system prompts</td></tr>
+          <tr><td><code>secrets</code></td><td>LLM02</td><td>Hardcoded provider / model API keys</td></tr>
+          <tr><td><code>unsafe-model-load</code></td><td>LLM03 / 04</td><td>pickle / <code>torch.load</code> / unsafe deserialization; unpinned model fetches</td></tr>
+          <tr><td><code>dependency-audit</code></td><td>LLM03</td><td>Unpinned / untrusted-source AI deps; known CVEs via OSV.dev</td></tr>
+          <tr><td><code>data-poisoning</code></td><td>LLM04</td><td>Fine-tuning / training on untrusted data</td></tr>
+          <tr><td><code>output-handling</code></td><td>LLM05</td><td>Model output into eval / shell / SQL / HTML sinks</td></tr>
+          <tr><td><code>tool-exposure</code></td><td>LLM06</td><td>Over-privileged agent tools with no confirmation gate</td></tr>
+          <tr><td><code>prompt-leakage</code></td><td>LLM07</td><td>System prompt written to logs / stdout</td></tr>
+          <tr><td><code>rag-trust</code></td><td>LLM08</td><td>Untrusted content ingested into a retrieval corpus</td></tr>
+          <tr><td><code>misinformation</code></td><td>LLM09</td><td>Ungrounded output in a high-stakes domain (advisory)</td></tr>
+          <tr><td><code>unbounded-consumption</code></td><td>LLM10</td><td>Uncapped LLM calls; unbounded agent loops (denial-of-wallet)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section id="languages">
+      <h2><span class="num">05</span>Nine languages, same discipline</h2>
+      <p class="sub">Python uses the stdlib <code class="inline">ast</code>; every other language uses
+        tree-sitter (JS also esprima). Each is an optional extra — without it, that language falls back
+        to regex automatically, never a crash.
+        <span class="pill ast">AST</span> = precise dataflow ·
+        <span class="pill pat">pattern</span> = scoped pattern-match.</p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Language</th><th>LLM01</th><th>LLM05</th><th>LLM06</th><th>LLM10</th></tr></thead>
+        <tbody>
+          <tr><td><b>Python</b> <code>built-in</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td></tr>
+          <tr><td><b>TypeScript / JSX</b> <code>[ts]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill ast">AST</span></td></tr>
+          <tr><td><b>JavaScript</b> <code>[js]</code></td><td><span class="pill no">—</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill ast">AST</span></td></tr>
+          <tr><td><b>Go</b> <code>[go]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill ast">AST</span></td></tr>
+          <tr><td><b>Java</b> <code>[java]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill pat">pattern</span></td></tr>
+          <tr><td><b>Kotlin</b> <code>[kotlin]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill pat">pattern</span></td></tr>
+          <tr><td><b>C# / .NET</b> <code>[csharp]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill pat">pattern</span></td></tr>
+          <tr><td><b>Ruby</b> <code>[ruby]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill pat">pattern</span></td></tr>
+          <tr><td><b>PHP</b> <code>[php]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill pat">pattern</span></td></tr>
+          <tr><td><b>Rust</b> <code>[rust]</code></td><td><span class="pill ast">AST</span></td><td><span class="pill ast">AST</span></td><td><span class="pill pat">pattern</span></td><td><span class="pill pat">pattern</span></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="sub">The AST paths (LLM01 untrusted→prompt, LLM05 output→sink) trace taint
+        <b>intra-function → interprocedural → cross-module</b>, framework-aware of LangChain, LlamaIndex,
+        OpenAI, Anthropic, Flask/FastAPI/Django and each language's popular SDKs.</p>
+    </section>
+
+    <section id="trust">
+      <h2><span class="num">06</span>The trust model</h2>
+      <p class="sub">Models make OrthoSec smarter without making it a guesser. The rule is directional:</p>
+      <div class="cards">
+        <div class="card"><div class="k">Finding · stack UP</div><h3>Deterministic is the arbiter</h3>
+          <p>The 0-FP deterministic engine is the floor. Optional model passes <b>corroborate</b>
+            (raise to <code>confirmed</code>) or <b>discover</b> extra <code>advisory</code> issues —
+            deduped and excluded from the score/gate. A model never removes or invents a finding.</p></div>
+        <div class="card"><div class="k">Fixing · cascade DOWN</div><h3>Strongest first, re-scan verified</h3>
+          <p><code>remediate --auto</code> tries a deterministic codemod, then a local model, then a cloud
+            model — and <b>re-scans after each</b>. A fix that doesn't verify is reverted, not shipped.</p></div>
+      </div>
+      <div class="note">Every model integration is <b>opt-in</b> (env-gated), <b>fail-open</b> (degrades to
+        deterministic, never crashes), and <b>additive</b> (never removes a deterministic signal).</div>
+    </section>
+
+    <section id="cli">
+      <h2><span class="num">07</span>CLI &amp; configuration</h2>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>scan &lt;path | url | owner/repo&gt;</code></td><td>Scan a local path or clone &amp; scan a remote/private repo. <code>--jobs</code>, <code>--profile</code>, <code>--fail-on</code>, <code>--sarif/--json/--html</code>, <code>--diff</code>, <code>--baseline</code></td></tr>
+          <tr><td><code>ask &lt;path&gt; "&lt;question&gt;"</code></td><td>Grounded Q&amp;A over the findings (needs a model backend)</td></tr>
+          <tr><td><code>remediate &lt;path&gt; --auto</code></td><td>Verify-gated auto-fix cascade (deterministic → local → cloud)</td></tr>
+          <tr><td><code>watch / schedule</code></td><td>Continuous or cron-scheduled scans with report output</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <h3>Key environment variables</h3>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>ORTHOSEC_JOBS</code></td><td>Worker processes (same as <code>--jobs</code>). Findings are byte-identical to a serial scan; ~4× on large trees</td></tr>
+          <tr><td><code>ORTHOSEC_SEMGREP=1</code></td><td>Enable the bundled deterministic Semgrep engine (opt-in, off by default)</td></tr>
+          <tr><td><code>ORTHOSEC_OSV=1</code></td><td>Enrich pinned AI/ML deps with known CVEs from OSV.dev</td></tr>
+          <tr><td><code>ORTHOSEC_CONFIDENCE=1</code></td><td>Model corroboration → confidence tiers (needs a model backend)</td></tr>
+          <tr><td><code>ORTHOSEC_DISCOVER=1</code></td><td>Model-led discovery of extra <code>advisory</code> findings (excluded from the gate)</td></tr>
+          <tr><td><code>ANTHROPIC_API_KEY</code> · <code>ORTHOSEC_LOCAL_MODEL_URL</code></td><td>Enable the executive briefing / Q&amp;A / auto-fix (cloud or a local OpenAI-compatible model)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section id="ci">
+      <h2><span class="num">08</span>CI / CD</h2>
+      <p class="sub">Gate pull requests on AI-security risk. Drop in the GitHub Action, or run the CLI / Docker anywhere.</p>
+<pre><span class="c"># .github/workflows/orthosec.yml — scan changed files, upload SARIF</span>
+- uses: cloudivian-org/OrthoSec@main
+  with:
+    profile: appsec
+    fail-on: high
+    diff-ref: ${{ github.event.pull_request.base.sha }}</pre>
+<pre><span class="c"># any CI, or locally — via the published container</span>
+docker run --rm -v "$PWD:/scan" ghcr.io/cloudivian-org/orthosec \
+  scan /scan --sarif /scan/orthosec.sarif --fail-on high</pre>
+      <div class="note">Adopting on an existing repo? Write a <b>baseline</b> once
+        (<code>--write-baseline</code>) and gate on <b>new</b> findings only, so day-one noise never blocks CI.</div>
+    </section>
+
+    <section id="private">
+      <h2><span class="num">09</span>Private &amp; remote repos</h2>
+      <p class="sub">Scan a repo you don't have checked out. The host (GitHub / GitLab / Bitbucket) is
+        auto-detected, and credentials are handled safely — passed via an askpass helper and child-process
+        env, never on the command line or in logs.</p>
+<pre><span class="c"># token read from stdin, never argv</span>
+orthosec scan owner/private-repo --git-token-stdin --branch main
+
+<span class="c"># or use your SSH agent / git credential helper transparently</span>
+orthosec scan git@github.com:owner/private-repo.git</pre>
+    </section>
+  </main>
+</div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div>OrthoSec — open source under Apache-2.0. Deterministic AI security analysis.</div>
+    <div>
+      <a href="https://github.com/cloudivian-org/OrthoSec">GitHub</a> ·
+      <a href="https://pypi.org/project/orthosec/">PyPI</a> ·
+      <a href="report/">Live report</a> ·
+      <a href="https://github.com/cloudivian-org/OrthoSec/blob/main/CHANGELOG.md">Changelog</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
