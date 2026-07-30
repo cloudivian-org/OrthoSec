@@ -31,13 +31,21 @@ _SHELL_RECEIVER = re.compile(r"(?i)(child_?process|^cp$|^cproc$|shelljs|execa)")
 # renderToString auto-escapes, DOMPurify.sanitize strips scripts.
 _SANITIZER = {"rendertostring", "rendertostaticmarkup", "sanitize", "purify", "escape",
               "escapehtml", "encodeuri", "encodeuricomponent", "striptags", "dompurify"}
+# Custom wrappers are ubiquitous (escapePreviewHtml, sanitizeInput, htmlEscape). A call
+# whose name begins with escape/sanitize/htmlescape neutralizes taint for our HTML/SQL
+# sinks. Over-matching here costs recall (a benign name that doesn't truly sanitize), never
+# a false positive — the right trade under a 0-FP mandate.
+_SANITIZER_NAME = re.compile(r"(?i)^(escape|sanitize|htmlescape)")
 
 
 def _is_sanitizer_call(node) -> bool:
     if node is None or node.type != "call_expression":
         return False
     chain = _callee_chain(node)
-    return bool(chain) and chain[-1].lower() in _SANITIZER
+    if not chain:
+        return False
+    name = chain[-1].lower()
+    return name in _SANITIZER or bool(_SANITIZER_NAME.match(name))
 
 _CACHE: dict = {}
 

@@ -226,9 +226,20 @@ def _scopes(root):
     return scopes or [root]
 
 
+# A `let output = Command::new(..).output()?` binds *process* output, not model output —
+# the bare name `output` must not be name-seeded there (real audit: an xtask that shells
+# out to `git`). Same for a `.stdout`/`.spawn()`/std::process value.
+_PROCESS_OUTPUT = re.compile(r"(?i)(Command::|\.output\s*\(|\.stdout\b|\.stderr\b|\.spawn\s*\(|std::process)")
+
+
+def _is_process_output(val) -> bool:
+    return val is not None and bool(_PROCESS_OUTPUT.search(_text(val)))
+
+
 def _taint_in_scope(scope, returns_out=()):
     seed = {name for name, val in _decls(scope)
-            if _OUTPUT_NAME.search(name) and not _is_sanitizer_call(val)}
+            if _OUTPUT_NAME.search(name) and not _is_sanitizer_call(val)
+            and not _is_process_output(val)}
     return _fixpoint(_decls(scope), seed, returns_out)
 
 

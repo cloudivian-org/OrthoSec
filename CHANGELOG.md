@@ -4,14 +4,27 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
-### Fixed — precision (found by a real-world 9-language parity audit)
-- **tool-exposure (LLM06) false positives eliminated on real code.** A 36-repo / 2.17M-LOC
-  audit across the six pattern-matched languages (`validation/parity_audit.py`) surfaced 3
-  false positives, all now fixed: (1) `ToolSpec` dropped as an agent-tool marker — it's a
-  common plain-struct name; (2) a dangerous token on an `import`/`use` line is no longer read
-  as a sink call (e.g. `use reqwest::StatusCode;`); (3) Rust `reqwest::` now requires a call
-  site, not the bare crate path. Parity-detector precision on the audit went 6/9 → 100%; each
-  fix is locked by a safe-lookalike benchmark case. See `VALIDATION.md`.
+### Fixed — precision (found by real-world audits across many languages)
+- **tool-exposure (LLM06) false positives eliminated.** (1) `ToolSpec` dropped as an
+  agent-tool marker — it's a common plain-struct name; (2) a dangerous token on an
+  `import`/`use` line is no longer read as a sink call (e.g. `use reqwest::StatusCode;`);
+  (3) Rust `reqwest::` now requires a call site, not the bare crate path.
+- **output-handling (LLM05) false positives eliminated.** (1) PHP `prepare()` is no longer a
+  SQL sink — a prepared statement is the parameterized, *safe* API; flagging it false-
+  positived on every PDO/DB helper (`db_update()`/`db_insert()`). (2) Custom TS sanitizers
+  matching `escape*`/`sanitize*` (e.g. `escapePreviewHtml`) now neutralize taint. (3) Rust
+  `let output = Command::new(..).output()` binds *process* output, not model output, so it's
+  no longer name-seeded.
+- **secrets (LLM02) false positives eliminated.** (1) Placeholder keys with repeated
+  (`sk-…aaaa…bbbb`), sequential (`abcdef123456`), or low-diversity characters are recognized
+  as fake. (2) Config/env references (`env(OPENAI_API_KEY)`, `${VAR}`, `$(VAR)`) aren't
+  literals. (3) Keys inside **inline** test blocks (`#[test]`, `func TestX`, `_spec`, `it(`)
+  are treated as fixtures, not just files under `tests/`. (4) More placeholder words
+  (invalid/expired/sample/fake/mock/should-not/…). A genuine high-entropy key in app code
+  still fires.
+
+All locked by regression tests (`tests/test_secrets.py`, benchmark safe-lookalike cases);
+suite stays 100% precision / 100% recall / 0 FP. See `VALIDATION.md`.
 
 ## [0.13.0] — 2026-07-30
 

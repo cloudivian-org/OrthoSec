@@ -42,6 +42,10 @@ _LANG_QUERY = {
 }
 # The detectors this audit is really stress-testing (newest coverage).
 _PARITY_DETECTORS = {"tool-exposure", "unbounded-consumption"}
+# Detectors to capture code context for (so findings can be triaged TP/FP).
+_CONTEXT_DETECTORS = _PARITY_DETECTORS | {"secrets", "output-handling"}
+# How many findings per detector to dump into the triage doc (secrets can be noisy).
+_TRIAGE_CAP = {"secrets": 30}
 
 
 def _context(root: str, rel: str, line: int, span: int = 5) -> list[str]:
@@ -87,7 +91,7 @@ def audit_lang(lang: str, per_lang: int, seed: int, pages: int, token, clone_tim
                     "detector": f.detector, "rule_id": f.rule_id, "owasp": f.owasp_llm,
                     "severity": f.severity.name, "file": f.file, "line": f.line,
                     "title": f.title, "evidence": (f.evidence or "")[:200],
-                    "context": _context(dest, f.file, f.line) if f.detector in _PARITY_DETECTORS else [],
+                    "context": _context(dest, f.file, f.line) if f.detector in _CONTEXT_DETECTORS else [],
                 })
             results.append({"repo": full, "commit": sha, "status": "ok", "lang": lang,
                             "loc": loc, "score": res.score, "grade": res.grade,
@@ -130,26 +134,31 @@ def main(argv=None) -> int:
         {"langs": langs, "seed": args.seed, "scanned_ok": len(ok),
          "total_loc": total_loc, "total_findings": len(flat),
          "parity_findings": len(parity), "by_detector": by_det, "repos": all_repos}, indent=2))
-    (out / f"{args.stamp}-triage.md").write_text(_render_triage(parity, by_det, ok, total_loc))
+    (out / f"{args.stamp}-triage.md").write_text(_render_triage(flat, by_det, ok, total_loc))
     _log(f"\nScanned {len(ok)} repos, {total_loc:,} LOC, {len(flat)} findings "
          f"({len(parity)} from the parity detectors). Wrote {out/args.stamp}.json + -triage.md")
     return 0
 
 
-def _render_triage(parity, by_det, ok, total_loc) -> str:
-    L = ["# LLM06/LLM10 parity — real-world triage", "",
-         f"- Repos scanned OK: {len(ok)} · Total LOC: {total_loc:,}",
-         f"- Parity findings (tool-exposure + unbounded-consumption): **{len(parity)}**", "",
+def _render_triage(flat, by_det, ok, total_loc) -> str:
+    L = ["# Real-world triage", "",
+         f"- Repos scanned OK: {len(ok)} · Total LOC: {total_loc:,}", "",
          "## All detectors (finding counts)", "", "| Detector | Findings |", "|---|---|"]
     for d, n in sorted(by_det.items(), key=lambda x: -x[1]):
         L.append(f"| {d} | {n} |")
-    L += ["", "## Parity findings to triage (TP/FP)", ""]
-    if not parity:
-        L.append("_No LLM06/LLM10 findings in this sample._")
-    for i, (repo, f) in enumerate(parity, 1):
-        L += [f"### {i}. {f['rule_id']} · {f['owasp']} · {f['severity']} — {repo}",
-              f"`{f['file']}:{f['line']}` — {f['title']}", "", "```",
-              *f["context"], "```", "verdict: <TP|FP>", ""]
+    # One triage section per context-captured detector, capped where noisy.
+    for det in ("tool-exposure", "unbounded-consumption", "output-handling", "secrets"):
+        items = [(repo, f) for repo, f in flat if f["detector"] == det]
+        cap = _TRIAGE_CAP.get(det)
+        shown = items[:cap] if cap else items
+        L += ["", f"## {det} — triage ({len(shown)} of {len(items)})", ""]
+        if not items:
+            L.append("_none in this sample._"); continue
+        for i, (repo, f) in enumerate(shown, 1):
+            L += [f"### {det} {i}. {f['rule_id']} · {f['owasp']} · {f['severity']} — {repo}",
+                  f"`{f['file']}:{f['line']}` — {f['title']}",
+                  f"evidence: `{f['evidence']}`", "", "```", *f["context"], "```",
+                  "verdict: <TP|FP>", ""]
     return "\n".join(L) + "\n"
 
 

@@ -21,7 +21,11 @@ _SANITIZER = {"htmlspecialchars", "htmlentities", "addslashes", "mysqli_real_esc
               "real_escape_string", "escapeshellarg", "escapeshellcmd", "urlencode",
               "rawurlencode", "filter_var", "e", "strip_tags", "quote"}
 _SHELL_FUNCS = {"exec", "shell_exec", "system", "passthru", "proc_open", "popen"}
-_SQL_METHODS = {"query", "exec", "prepare", "statement", "unprepared",
+# NB: `prepare` is deliberately NOT a sink — a prepared statement is the parameterized,
+# SAFE API (values are bound via execute(), not interpolated). Flagging it false-positives
+# on every PDO/DB helper (real audit: an `db_update()`/`db_insert()` wrapper). Raw,
+# string-interpolated execution (query/exec/statement/unprepared/Laravel *raw) stays flagged.
+_SQL_METHODS = {"query", "exec", "statement", "unprepared",
                 "whereraw", "selectraw", "fromraw", "havingraw", "orderbyraw", "raw"}
 _DB_RECEIVER = re.compile(r"(?i)(pdo|mysqli|\bdb\b|conn|connection|database|dbh|eloquent|capsule)")
 
