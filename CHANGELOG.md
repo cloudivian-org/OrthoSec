@@ -4,6 +4,21 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Added — language coverage (LLM06 + LLM10 parity)
+- **LLM06 (Excessive Agency) now covers all 9 languages** (was Python + JS/TS). Extended the
+  proximity-regex path to Go/Java/Kotlin/C#/Ruby/PHP/Rust with tight per-language dangerous-
+  sink patterns (shell / file-write-delete / outbound-HTTP), gated by an agent-tool marker
+  **and** confirmation proximity — a bare shell call with no agent tool nearby does not fire.
+  Tool-marker set broadened to LangChain4j `@Tool`, Semantic Kernel `[KernelFunction]`, rig
+  `#[tool]`, Bedrock `ToolSpec`, OpenAI `FunctionDefinition`.
+- **LLM10 (Unbounded Consumption) now covers all 9 languages** (was Python + Go + JS/TS).
+  Added a per-language SDK-completion-call path for Java/Kotlin/C#/Ruby/PHP/Rust using each
+  ecosystem's real method chain (`chat().completions().create` / `CompleteChat` /
+  `chat(parameters:` / `->chat()->create` / `chat().create`) with a bidirectional cap-keyword
+  window (a cap set above or inline suppresses it — prefer a miss over a false positive).
+- Benchmark grown 78 → **104 cases** (+14 LLM06, +12 LLM10, pos + safe-lookalike per new
+  language); still **100% precision / 100% recall / 0 FP**.
+
 ### Added — performance
 - **Process-parallel scanning (`--jobs/-j N`, env `ORTHOSEC_JOBS`).** The taint hot loop is
   pure-Python AST traversal (CPU- and GIL-bound), so scans now shard across worker processes

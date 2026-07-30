@@ -458,6 +458,66 @@
     {
       "file": "cases/llm06_safe_rust.rs",
       "expect": []
+    },
+    {
+      "file": "cases/llm10_pos_java.java",
+      "expect": [
+        "LLM10"
+      ]
+    },
+    {
+      "file": "cases/llm10_safe_java.java",
+      "expect": []
+    },
+    {
+      "file": "cases/llm10_pos_kotlin.kt",
+      "expect": [
+        "LLM10"
+      ]
+    },
+    {
+      "file": "cases/llm10_safe_kotlin.kt",
+      "expect": []
+    },
+    {
+      "file": "cases/llm10_pos_csharp.cs",
+      "expect": [
+        "LLM10"
+      ]
+    },
+    {
+      "file": "cases/llm10_safe_csharp.cs",
+      "expect": []
+    },
+    {
+      "file": "cases/llm10_pos_ruby.rb",
+      "expect": [
+        "LLM10"
+      ]
+    },
+    {
+      "file": "cases/llm10_safe_ruby.rb",
+      "expect": []
+    },
+    {
+      "file": "cases/llm10_pos_php.php",
+      "expect": [
+        "LLM10"
+      ]
+    },
+    {
+      "file": "cases/llm10_safe_php.php",
+      "expect": []
+    },
+    {
+      "file": "cases/llm10_pos_rust.rs",
+      "expect": [
+        "LLM10"
+      ]
+    },
+    {
+      "file": "cases/llm10_safe_rust.rs",
+      "expect": []
     }
   ]
 }

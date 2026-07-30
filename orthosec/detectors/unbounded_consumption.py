@@ -30,6 +30,31 @@ _CAP_KEYS = {"max_tokens", "max_output_tokens", "maxtokens", "max_completion_tok
 _JS_CALL = re.compile(r"(?i)(chat\.completions\.create|responses\.create|messages\.create)\s*\(")
 _JS_CAP = re.compile(r"(?i)(max_tokens|max_output_tokens|maxTokens)")
 
+# Generic path for languages without a tree-sitter unbounded analyzer (Java/Kotlin/C#/
+# Ruby/PHP/Rust). SDK method chains differ per language, so each has its own tight
+# completion-call pattern (the official OpenAI/Anthropic SDK spelling for that language)
+# and cap-keyword set. A cap anywhere in the call's forward window suppresses the finding.
+_LLM10_BY_SUFFIX = {
+    # OpenAI: client.chat().completions().create(...) · Anthropic: client.messages().create(...)
+    ".java": (re.compile(r"\.(completions|messages)\(\)\s*\.\s*create\s*\("),
+              re.compile(r"(?i)(max_?tokens|max_?output_?tokens|max_?completion_?tokens)")),
+    ".kt": (re.compile(r"\.(completions|messages)\(\)\s*\.\s*create\s*\("),
+            re.compile(r"(?i)(max_?tokens|max_?output_?tokens|max_?completion_?tokens)")),
+    # OpenAI: chatClient.CompleteChat(...) · Anthropic.SDK: client.Messages.Create(...)
+    ".cs": (re.compile(r"(\.CompleteChat(Async)?\s*\(|\.Messages\.Create\s*\()"),
+            re.compile(r"(?i)(max_?tokens|maxoutputtokencount|max_?output_?tokens|max_?completion_?tokens)")),
+    # ruby-openai: client.chat(parameters: {...}) · anthropic: client.messages.create(...)
+    ".rb": (re.compile(r"(\.chat\(\s*parameters|\.messages\.create\s*\()"),
+            re.compile(r"(?i)max_tokens")),
+    # openai-php: $client->chat()->create([...]) · ->messages()->create([...])
+    ".php": (re.compile(r"->\s*(chat|messages)\(\)\s*->\s*create\s*\("),
+             re.compile(r"(?i)max_tokens")),
+    # async-openai / anthropic-sdk: client.chat().create(req) · client.messages().create(req)
+    ".rs": (re.compile(r"\.(chat|messages)\(\)\s*\.\s*create\s*\("),
+            re.compile(r"(?i)max_tokens")),
+}
+_GENERIC_SUFFIXES = set(_LLM10_BY_SUFFIX)
+
 _CAP_FIX = ("Set max_tokens (and a request timeout). Cap per-user/token budgets and "
             "rate-limit to prevent denial-of-wallet.")
 _LOOP_FIX = ("Bound the loop: max iterations/steps, a wall-clock deadline, and a token "
@@ -73,6 +98,8 @@ class UnboundedConsumptionDetector:
                 gen = self._scan_python(ctx, path, text)
             elif suffix in {".js", ".ts", ".tsx", ".jsx", ".go"}:
                 gen = self._scan_regex(ctx, path, text)
+            elif suffix in _GENERIC_SUFFIXES:
+                gen = self._scan_generic(ctx, path, text)
             else:
                 continue
             # An uncapped LLM call in test/example code is not a production denial-of-wallet
@@ -119,6 +146,28 @@ class UnboundedConsumptionDetector:
             evidence=_snip(lines, line), remediation=_CAP_FIX,
             confidence=0.6 if explicit else 0.45,
         )
+
+    def _scan_generic(self, ctx, path, text) -> Iterable[Finding]:
+        """Java/Kotlin/C#/Ruby/PHP/Rust: an SDK completion call with no output cap in its
+        argument window. Comments stripped so a commented-out call or a `// max_tokens`
+        note doesn't skew the result."""
+        call_re, cap_re = _LLM10_BY_SUFFIX[path.suffix.lower()]
+        raw = text.splitlines()
+        lines = strip_comments(text).splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            if call_re.search(line):
+                # Bidirectional window: builders set the cap ABOVE the call as often as
+                # inline. Prefer a miss over a false positive — if a cap is anywhere near,
+                # assume it applies.
+                window = "\n".join(lines[max(0, lineno - 9):lineno + 8])
+                if not cap_re.search(window):
+                    yield Finding(
+                        detector=self.id, rule_id="ORTHO-CONSUME-001",
+                        title="LLM call without an output-token cap", severity=Severity.MEDIUM,
+                        owasp_llm="LLM10", atlas=[], file=ctx.rel(path), line=lineno,
+                        evidence=raw[lineno - 1].strip()[:200] if 0 < lineno <= len(raw) else "",
+                        remediation=_CAP_FIX, confidence=0.55,
+                    )
 
     def _scan_regex(self, ctx, path, text) -> Iterable[Finding]:
         raw = text.splitlines()

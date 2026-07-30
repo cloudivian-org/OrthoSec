@@ -1,7 +1,8 @@
 using System.Diagnostics;
 class A {
   void Run(ChatClient chat) {
-    string outp = chat.CompleteChat(messages).Value.Content[0].Text;
+    var opts = new ChatCompletionOptions { MaxOutputTokenCount = 256 };
+    string outp = chat.CompleteChat(messages, opts).Value.Content[0].Text;
     Process.Start(outp);
   }
 }
