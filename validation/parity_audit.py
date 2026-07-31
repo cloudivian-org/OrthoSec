@@ -43,7 +43,8 @@ _LANG_QUERY = {
 # The detectors this audit is really stress-testing (newest coverage).
 _PARITY_DETECTORS = {"tool-exposure", "unbounded-consumption"}
 # Detectors to capture code context for (so findings can be triaged TP/FP).
-_CONTEXT_DETECTORS = _PARITY_DETECTORS | {"secrets", "output-handling"}
+_CONTEXT_DETECTORS = _PARITY_DETECTORS | {"secrets", "output-handling",
+                                          "prompt-hardening", "dependency-audit"}
 # How many findings per detector to dump into the triage doc (secrets can be noisy).
 _TRIAGE_CAP = {"secrets": 30}
 
@@ -147,7 +148,8 @@ def _render_triage(flat, by_det, ok, total_loc) -> str:
     for d, n in sorted(by_det.items(), key=lambda x: -x[1]):
         L.append(f"| {d} | {n} |")
     # One triage section per context-captured detector, capped where noisy.
-    for det in ("tool-exposure", "unbounded-consumption", "output-handling", "secrets"):
+    for det in ("tool-exposure", "unbounded-consumption", "output-handling",
+                "prompt-hardening", "dependency-audit", "secrets"):
         items = [(repo, f) for repo, f in flat if f["detector"] == det]
         cap = _TRIAGE_CAP.get(det)
         shown = items[:cap] if cap else items
