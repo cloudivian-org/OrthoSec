@@ -86,3 +86,31 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
+
+  # Publish the Node runtime guard (@orthosec/guard) to npm on a published Release, with
+  # build provenance (--provenance, OIDC). One-time setup: add an `NPM_TOKEN` repo secret
+  # (an npm automation token with publish rights). The package version is whatever
+  # sdk/js/package.json declares — npm rejects a duplicate, so a bump is required per publish.
+  publish-npm:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC: npm provenance attestation
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Test the guard
+        working-directory: sdk/js
+        run: node --test
+
+      - name: Publish to npm
+        working-directory: sdk/js
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

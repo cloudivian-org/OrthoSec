@@ -3,15 +3,16 @@
 The recommended path is the **automated, signed release** below (Trusted Publishing /
 OIDC — no token stored anywhere). Manual `twine upload` is kept as a fallback.
 
-## Pre-publish checklist (verified for v0.13.0)
+## Pre-publish checklist (verified for v0.14.0)
 
 - [x] `python -m build` produces a clean wheel + sdist
 - [x] `python -m twine check dist/*` → PASSED (both artifacts)
-- [x] Wheel installs and the `orthosec` console script runs (`orthosec --version` → 0.13.0, 12 detectors, LLM01–10)
-- [x] `requires-python >=3.9`; full test suite green (363); benchmark 104 cases, 100% / 0 FP
-- [x] Version consistent: `pyproject.toml` 0.13.0, `orthosec/__init__.py` 0.13.0, `CHANGELOG.md` 0.13.0
-- [ ] **You (one-time):** configure the PyPI trusted publisher (see below)
-- [ ] **You:** cut tag `v0.13.0` + publish the GitHub Release → CI builds, signs, and uploads
+- [x] Wheel installs and the `orthosec` console script runs (`orthosec --version` → 0.14.0, 12 detectors, LLM01–10)
+- [x] `requires-python >=3.9`; full test suite green (397); benchmark 108 cases, 100% / 0 FP
+- [x] Version consistent: `pyproject.toml` 0.14.0, `orthosec/__init__.py` 0.14.0, `CHANGELOG.md` 0.14.0
+- [x] Node guard `@orthosec/guard` bumped to 0.2.0 (`node --test` → 9 pass)
+- [ ] **You (one-time):** PyPI trusted publisher (below) + `NPM_TOKEN` repo secret (for the npm job)
+- [ ] **You:** cut tag `v0.14.0` + publish the GitHub Release → CI builds, signs, and uploads (PyPI + GHCR + npm)
 
 ## Signed release via CI (recommended)
 
@@ -34,12 +35,18 @@ On pypi.org → project `orthosec` → Manage → Publishing → Add a new publi
 (`orthosec` already exists on PyPI, so add it as a publisher on the existing project — not
 a "pending" publisher.)
 
+### One-time: npm token for the guard publish
+
+The release workflow's `publish-npm` job publishes `@orthosec/guard` with provenance. Add an
+**`NPM_TOKEN`** repo secret (Settings → Secrets → Actions) — an npm **automation** token with
+publish rights for the `@orthosec` scope. Without it the npm job fails but PyPI/GHCR still ship.
+
 ### Cut the release
 
 ```bash
-git tag v0.13.0 && git push origin v0.13.0        # -> GHCR image build
-gh release create v0.13.0 --title "v0.13.0" --notes-file <(sed -n '/## \[0.13.0\]/,/## \[0.12.3\]/p' CHANGELOG.md)
-# publishing the Release -> build + SLSA attest + OIDC publish to PyPI
+git tag v0.14.0 && git push origin v0.14.0        # -> GHCR image build
+gh release create v0.14.0 --title "v0.14.0" --notes "$(sed -n '/## \[0.14.0\]/,/## \[0.13.0\]/p' CHANGELOG.md | sed '$d')"
+# publishing the Release -> PyPI (OIDC + SLSA) + GHCR + npm (@orthosec/guard, provenance)
 ```
 
 Then anyone can:

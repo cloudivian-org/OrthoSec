@@ -4,6 +4,8 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-07-31
+
 ### Added — Node guard `@orthosec/guard` 0.2.0
 - **Optional model backend for the runtime guard.** New async `scanPromptAsync` /
   `scanOutputAsync` escalate the always-on heuristics to a model when one is configured —
