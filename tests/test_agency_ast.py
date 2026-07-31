@@ -8,7 +8,7 @@ dangerous sink counts only when it sits in that tool function's body — at any 
 import unittest
 
 from orthosec.detectors.tool_exposure import _ast_agency
-from orthosec.analysis import java_ast, csharp_ast, rust_ast, kotlin_ast
+from orthosec.analysis import java_ast, csharp_ast, rust_ast, kotlin_ast, ts_ast
 
 
 def _caps(hits):
@@ -61,6 +61,35 @@ class TestKotlin(unittest.TestCase):
     def test_tool_shell_fires(self):
         src = 'class T { @Tool fun run(cmd: String) { Runtime.getRuntime().exec(cmd) } }'
         self.assertTrue(_ast_agency(".kt", src))
+
+
+@unittest.skipUnless(ts_ast.available(), "ts grammar")
+class TestTsFactory(unittest.TestCase):
+    def test_vercel_tool_executor_sink_fires(self):
+        src = 'const t = tool({ execute: async (a) => { execSync(a.cmd); } });'
+        self.assertTrue(ts_ast.tool_agency_findings(src))
+
+    def test_dynamic_structured_tool_fires(self):
+        src = 'const t = new DynamicStructuredTool({ name:"run", func: async (i) => { child_process.exec(i.x); } });'
+        hits = ts_ast.tool_agency_findings(src)
+        self.assertTrue(hits and hits[0][3] == "run")
+
+    def test_distant_sink_in_executor_fires(self):
+        body = '\n'.join(f'  let v{i} = {i};' for i in range(14))
+        src = 'const t = tool({ execute: async (a) => {\n' + body + '\n  fs.writeFile(a.p, a.d);\n} });'
+        self.assertTrue(ts_ast.tool_agency_findings(src))
+
+    def test_confirmation_downgrades(self):
+        src = 'const t = tool({ execute: async (a) => { if(!requireApproval()) return; execSync(a.cmd); } });'
+        hits = ts_ast.tool_agency_findings(src)
+        self.assertTrue(hits and hits[0][2] is True)
+
+    def test_sink_outside_factory_returns_none(self):
+        # No tool factory -> None so the caller falls back to the marker regex.
+        self.assertIsNone(ts_ast.tool_agency_findings('function deploy(cmd){ execSync(cmd); }'))
+
+    def test_factory_without_executor_returns_none(self):
+        self.assertIsNone(ts_ast.tool_agency_findings('const t = tool(myFunc);'))
 
 
 if __name__ == "__main__":

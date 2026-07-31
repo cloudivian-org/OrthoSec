@@ -115,6 +115,21 @@ def _ast_agency(suffix, src):
     except Exception:
         return None
 
+
+def _ts_factory_agency(src, suffix):
+    """AST tool-exposure for TS/JS factory-declared tools (`tool({execute})`); None to fall
+    back to the regex path (marker/decorator-declared tools)."""
+    try:
+        from orthosec.analysis import ts_ast
+    except Exception:
+        return None
+    if not ts_ast.available():
+        return None
+    try:
+        return ts_ast.tool_agency_findings(src, tsx=suffix in {".tsx", ".jsx", ".js"})
+    except Exception:
+        return None
+
 # Agent-tool markers across ecosystems: LangChain/-4j @tool/@Tool, OpenAI function tools,
 # Semantic Kernel [KernelFunction], MCP, Vercel AI, rig/rust #[tool]. Deliberately NOT
 # `ToolSpec` — it's a common plain-struct name (e.g. an internal CLI descriptor), and
@@ -185,6 +200,8 @@ class ToolExposureDetector:
     # --- non-Python: AST for annotation langs, else proximity regex -----
     def _scan_regex(self, ctx, path, text, suffix=".ts") -> Iterable[Finding]:
         hits = _ast_agency(suffix, text)
+        if hits is None and suffix in {".ts", ".tsx", ".jsx", ".js"}:
+            hits = _ts_factory_agency(text, suffix)   # factory-declared tools (tool({execute}))
         if hits is not None:
             for ln, capability, mitigated, name in hits:
                 yield Finding(

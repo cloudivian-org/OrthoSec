@@ -6,4 +6,5 @@ exclude:
   - benchmark
   - tests
   - sdk
+  - validation/results   # gitignored audit artifacts (triage docs quote real keys from scanned public repos)
 profile: appsec

@@ -43,7 +43,11 @@ benchmark safe-lookalike cases); suite stays 100% precision / 100% recall / 0 FP
 
 ### Changed — LLM06 upgraded from pattern to AST for annotation-based languages
 - **Excessive-agency (LLM06) now uses tree-sitter dataflow for Java/Kotlin/C#/Rust** (was
-  regex). A new shared core (`analysis/_agency.py`) identifies a model-invokable tool by the
+  regex), plus **factory-declared tools in TypeScript/JavaScript** (`tool({ execute })`,
+  `new DynamicStructuredTool({ func })`): the executor callback is located and a dangerous
+  sink is credited only inside it, at any distance. A tool factory with no executor, or a
+  sink outside any tool, does not fire; files with no factory fall back to the marker regex
+  (so `@tool`/`mcp.tool`-style tools stay covered). A new shared core (`analysis/_agency.py`) identifies a model-invokable tool by the
   annotation ON the function (`@Tool` / `[KernelFunction]` / `#[tool]`) and credits a
   dangerous sink only when it sits in that tool function's body — at any line distance, with
   no cross-function bleed. This is strictly more precise than the proximity window (a `@tool`

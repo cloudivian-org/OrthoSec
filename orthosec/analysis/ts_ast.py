@@ -218,6 +218,85 @@ def _expr_is_output_ip(node, tainted: set, returns_out) -> bool:
 
 # ---- public entry points ----------------------------------------------------
 
+# ---- LLM06: factory-declared agent tools ------------------------------------
+# TS/JS agent tools are declared by a factory call — Vercel AI `tool({ execute })`,
+# LangChain.js `tool(fn, {...})` / `new DynamicStructuredTool({ func })`. We find the tool's
+# executor callback and credit a dangerous sink only inside it (precise scope, any distance),
+# instead of a proximity window. Requiring an executor function keeps it precise — a plain
+# `tool(x)` with no callback is not treated as a tool.
+_TOOL_FACTORY = re.compile(r"^(tool|DynamicStructuredTool|DynamicTool|StructuredTool|FunctionTool)$", re.I)
+_EXEC_KEY = {"execute", "func", "function", "handler", "call", "_call", "run"}
+_FN_TYPES = ("arrow_function", "function_expression", "function_declaration")
+_TS_SINKS = {
+    "shell/command execution": re.compile(r"(?i)\b(child_process|exec\(|execSync|spawn\()"),
+    "arbitrary file write/delete": re.compile(r"(?i)\b(fs\.writeFile|fs\.unlink|fs\.rm)\b"),
+    "arbitrary outbound HTTP": re.compile(r"(?i)\b(fetch\(|axios)\b"),
+}
+_TS_CONFIRM = re.compile(r"(?i)(confirm|approval|human_in_the_loop|require_approval|allowlist|whitelist)")
+_TS_IMPORT = re.compile(r"^\s*(import|export\s+\{|const\s+\{[^}]*\}\s*=\s*require)")
+
+
+def _callee_name(call) -> str:
+    fn = call.child_by_field_name("function") or call.child_by_field_name("constructor")
+    return _text(fn).split(".")[-1].strip() if fn is not None else ""
+
+
+def _find_executor(node):
+    """The executor callback of a tool factory call + the tool's name, or (None, None)."""
+    args = node.child_by_field_name("arguments")
+    if args is None:
+        return None, None
+    name = "tool"
+    for arg in args.children:
+        if arg.type in _FN_TYPES:
+            return arg, name
+        if arg.type == "object":
+            execfn = None
+            for pair in arg.children:
+                if pair.type != "pair":
+                    continue
+                k, v = pair.child_by_field_name("key"), pair.child_by_field_name("value")
+                kn = _text(k).strip("'\"`") if k is not None else ""
+                if kn == "name" and v is not None:
+                    name = _text(v).strip("'\"`")
+                if kn.lower() in _EXEC_KEY and v is not None and v.type in _FN_TYPES:
+                    execfn = v
+            if execfn is not None:
+                return execfn, name
+    return None, None
+
+
+def tool_agency_findings(src: str, tsx: bool = True):
+    """LLM06 — dangerous sinks inside a factory-declared tool's executor. Returns
+    (line, capability, mitigated, name) list, or None when no tool factory is present
+    (so the caller falls back to the regex path for marker/decorator-declared tools)."""
+    root = _parse(src, tsx)
+    if root is None:
+        return None
+    out, found = [], False
+    for n in _walk(root):
+        if n.type not in ("call_expression", "new_expression"):
+            continue
+        if not _TOOL_FACTORY.match(_callee_name(n)):
+            continue
+        execfn, name = _find_executor(n)
+        if execfn is None:
+            continue
+        found = True
+        body = execfn.child_by_field_name("body")
+        scope = _text(body) if body is not None else _text(execfn)
+        base = _line(body) if body is not None else _line(execfn)
+        mitigated = bool(_TS_CONFIRM.search(scope))
+        for i, ln in enumerate(scope.splitlines()):
+            if _TS_IMPORT.match(ln):
+                continue
+            for cap, sink_re in _TS_SINKS.items():
+                if sink_re.search(ln):
+                    out.append((base + i, cap, mitigated, name))
+                    break
+    return out if found else None
+
+
 def _has_inline_request(call) -> bool:
     """True if a call passes an inline object literal — the request whose fields we can
     fully see. When the request is a bare variable (built elsewhere), a cap may be set in

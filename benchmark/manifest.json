@@ -526,6 +526,16 @@
     {
       "file": "cases/llm06_safe_rust_toolspec.rs",
       "expect": []
+    },
+    {
+      "file": "cases/llm06_pos_ts.ts",
+      "expect": [
+        "LLM06"
+      ]
+    },
+    {
+      "file": "cases/llm06_safe_ts.ts",
+      "expect": []
     }
   ]
 }
