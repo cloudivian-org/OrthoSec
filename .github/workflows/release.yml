@@ -111,6 +111,12 @@ jobs:
 
       - name: Publish to npm
         working-directory: sdk/js
-        run: npm publish --provenance --access public
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is empty or unset."
+            exit 1
+          fi
+          npm config set //registry.npmjs.org/:_authToken "${NODE_AUTH_TOKEN}"
+          npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,42 @@
+# Publish the Node guard @orthosec/guard to npm — manually triggerable (workflow_dispatch)
+# and re-runnable independently of a full release. Uses an explicit auth-token write (more
+# reliable than setup-node's implicit .npmrc when publishing from a subdirectory).
+#
+# One-time: add an `NPM_TOKEN` repo secret — an npm Automation token with publish rights for
+# the @orthosec scope.
+name: npm-publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC: npm provenance attestation
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Test the guard
+        working-directory: sdk/js
+        run: node --test
+
+      - name: Publish to npm
+        working-directory: sdk/js
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is empty or unset — add it in repo Settings → Secrets → Actions."
+            exit 1
+          fi
+          echo "auth token present (length ${#NODE_AUTH_TOKEN})"
+          npm config set //registry.npmjs.org/:_authToken "${NODE_AUTH_TOKEN}"
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
