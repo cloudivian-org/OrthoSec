@@ -48,5 +48,24 @@ const res = scanOutput(modelText);   // { ok, risks, where }
 
 `guard()` works with sync and async functions and preserves the signature.
 
+## Optional model backend
+
+The heuristics are the always-on, zero-dependency floor. Point the guard at a model to
+escalate — **opt-in, fail-open (a model outage never blocks your call), and additive (a
+model can only *add* a risk, never clear a heuristic one)**:
+
+```js
+import { scanPromptAsync, scanOutputAsync } from "@orthosec/guard";
+
+// input direction:  ORTHOSEC_GUARD_MODEL_URL  (+ _API_KEY, _KIND, _TIMEOUT; bare var = model name)
+// output direction: ORTHOSEC_OUTPUT_MODEL_URL
+const res = await scanPromptAsync(userInput);   // heuristic + model
+```
+
+`KIND` is `openai` (any OpenAI-compatible `/v1/chat/completions`, incl. a local Llama Guard)
+or `ollama` (`/api/chat`). When a backend is set, `guard()` automatically uses the async path;
+pass `{ model: false }` to force heuristic-only. This mirrors the Python guard's
+`ORTHOSEC_GUARD_MODEL_*` / `ORTHOSEC_OUTPUT_MODEL_*` contract.
+
 A heuristic tripwire, not a guarantee — pair it with the OrthoSec static scanner
 and least-privilege tool design. Apache-2.0.

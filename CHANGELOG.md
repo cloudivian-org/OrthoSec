@@ -4,6 +4,15 @@ All notable changes to OrthoSec are documented here. Versions follow semver.
 
 ## [Unreleased]
 
+### Added — Node guard `@orthosec/guard` 0.2.0
+- **Optional model backend for the runtime guard.** New async `scanPromptAsync` /
+  `scanOutputAsync` escalate the always-on heuristics to a model when one is configured —
+  **opt-in, fail-open** (a model outage never blocks the call), and **additive** (a model can
+  only add a risk, never clear a heuristic one). Mirrors the Python guard's
+  `ORTHOSEC_GUARD_MODEL_*` / `ORTHOSEC_OUTPUT_MODEL_*` contract (`openai`-compatible or
+  `ollama`); `guard()` uses the async path automatically when a backend is set, or `{ model:
+  false }` forces heuristic-only. Still zero-dependency (Node 18 `fetch`).
+
 ### Fixed — precision (found by real-world audits across many languages)
 - **tool-exposure (LLM06) false positives eliminated.** (1) `ToolSpec` dropped as an
   agent-tool marker — it's a common plain-struct name; (2) a dangerous token on an

@@ -1,6 +1,6 @@
 {
   "name": "@orthosec/guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OrthoSec runtime guard — catch prompt injection and unsafe LLM output at call time in any Node AI app. Zero dependencies.",
   "type": "module",
   "main": "index.js",
