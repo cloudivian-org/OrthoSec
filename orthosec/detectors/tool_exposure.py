@@ -80,6 +80,41 @@ _DANGEROUS_BY_SUFFIX = {
 # Languages that go through the proximity-regex path (Python uses AST unless it fails to parse).
 _REGEX_SUFFIXES = {".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".kt", ".cs", ".rb", ".php", ".rs"}
 
+# Annotation-based languages: a tool is declared by an annotation ON the function
+# (@Tool / [KernelFunction] / #[tool] / @tool), so AST tool-scoping is precise. Value =
+# (analyzer module, function node types, body field). Others (Go/Ruby/PHP — no annotation
+# convention) keep the validated proximity regex.
+_AST_AGENCY = {
+    ".java": ("java_ast", {"method_declaration", "constructor_declaration"}, "body"),
+    ".kt": ("kotlin_ast", {"function_declaration"}, "function_body"),
+    ".cs": ("csharp_ast", {"method_declaration", "local_function_statement"}, "body"),
+    ".rs": ("rust_ast", {"function_item"}, "body"),
+    # TS/JS/Go/Ruby/PHP declare tools by factory call (`tool({...})`) or registration, not a
+    # function annotation, so annotation-AST doesn't fit — they keep the validated regex.
+}
+
+
+def _ast_agency(suffix, src):
+    """Precise AST tool-exposure for annotation-based languages; None to fall back to regex."""
+    info = _AST_AGENCY.get(suffix)
+    if not info:
+        return None
+    modname, fn_types, body_field = info
+    try:
+        import importlib
+        mod = importlib.import_module("orthosec.analysis." + modname)
+    except Exception:
+        return None
+    if not getattr(mod, "available", lambda: False)():
+        return None
+    from orthosec.analysis._agency import tool_sinks
+    sinks = _DANGEROUS_BY_SUFFIX.get(suffix, _DANGEROUS_JS)
+    try:
+        return tool_sinks(mod._parse, mod._walk, mod._text, mod._line, src,
+                          fn_types, _TOOL_MARKER, sinks, _CONFIRM, _IMPORT_LINE, body_field)
+    except Exception:
+        return None
+
 # Agent-tool markers across ecosystems: LangChain/-4j @tool/@Tool, OpenAI function tools,
 # Semantic Kernel [KernelFunction], MCP, Vercel AI, rig/rust #[tool]. Deliberately NOT
 # `ToolSpec` — it's a common plain-struct name (e.g. an internal CLI descriptor), and
@@ -147,8 +182,20 @@ class ToolExposureDetector:
                 metadata={"trace": s.trace} if s.trace else {},
             )
 
-    # --- non-Python: proximity regex ------------------------------------
+    # --- non-Python: AST for annotation langs, else proximity regex -----
     def _scan_regex(self, ctx, path, text, suffix=".ts") -> Iterable[Finding]:
+        hits = _ast_agency(suffix, text)
+        if hits is not None:
+            for ln, capability, mitigated, name in hits:
+                yield Finding(
+                    detector=self.id, rule_id="ORTHO-AGENCY-001",
+                    title=f"Model-invokable tool '{name}' can reach {capability} with no confirmation gate",
+                    severity=Severity.MEDIUM if mitigated else Severity.CRITICAL,
+                    owasp_llm="LLM06", atlas=["AML.T0053"], file=ctx.rel(path), line=ln,
+                    evidence=(text.splitlines()[ln - 1].strip()[:200] if 0 < ln <= len(text.splitlines()) else ""),
+                    remediation=_REMEDIATION, confidence=0.6 if mitigated else 0.8,
+                )
+            return
         if not _TOOL_MARKER.search(text):
             return
         dangerous = _DANGEROUS_BY_SUFFIX.get(suffix, _DANGEROUS_JS)

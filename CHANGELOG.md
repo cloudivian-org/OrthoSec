@@ -41,6 +41,17 @@ benchmark safe-lookalike cases); suite stays 100% precision / 100% recall / 0 FP
 
 ## [0.13.0] — 2026-07-30
 
+### Changed — LLM06 upgraded from pattern to AST for annotation-based languages
+- **Excessive-agency (LLM06) now uses tree-sitter dataflow for Java/Kotlin/C#/Rust** (was
+  regex). A new shared core (`analysis/_agency.py`) identifies a model-invokable tool by the
+  annotation ON the function (`@Tool` / `[KernelFunction]` / `#[tool]`) and credits a
+  dangerous sink only when it sits in that tool function's body — at any line distance, with
+  no cross-function bleed. This is strictly more precise than the proximity window (a `@tool`
+  mention in unrelated code can't implicate a plain function) and higher-recall (sinks far
+  from the annotation are still caught). TS/JS/Go/Ruby/PHP declare tools by factory call or
+  registration rather than a function annotation, so they keep the validated regex. Benchmark
+  unchanged (100%/100%/0 FP).
+
 ### Changed — LLM10 upgraded from pattern to AST in six languages
 - **Unbounded-consumption (LLM10) now uses tree-sitter dataflow for Java/Kotlin/C#/Ruby/PHP/
   Rust** (was regex). A new shared core (`analysis/_unbounded.py`) scopes the output-cap check
