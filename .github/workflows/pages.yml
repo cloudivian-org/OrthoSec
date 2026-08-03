@@ -34,17 +34,25 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install OrthoSec
-        run: pip install -e .
+      - name: Install OrthoSec (+ intel for the executive briefing)
+        run: pip install -e ".[intel]"
 
       - name: Build docs site + live sample report
+        env:
+          # The live report includes the LLM executive briefing when a model key is set as
+          # a repo secret. Without it the scan fails open to the deterministic summary — the
+          # report still builds, just without the board-level narrative. Optionally set an
+          # ORTHOSEC_MODEL repo variable to pick a cheaper model for this per-push sample.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ORTHOSEC_MODEL: ${{ vars.ORTHOSEC_MODEL }}
         run: |
           mkdir -p _site/report
           # Docs landing page (self-contained, theme-aware).
           cp site/index.html _site/index.html
-          # Live sample report, regenerated fresh from the bundled vulnerable demo.
+          # Live sample report, regenerated fresh from the bundled vulnerable demo. The CISO
+          # profile surfaces the executive briefing (business risk + regulatory exposure).
           orthosec scan examples/vulnerable-agent \
-            --profile appsec --fail-on none --no-exec \
+            --profile ciso --fail-on none \
             --html _site/report/index.html
 
       - uses: actions/upload-pages-artifact@v3
