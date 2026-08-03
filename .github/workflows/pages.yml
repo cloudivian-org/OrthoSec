@@ -1,10 +1,13 @@
-# Publishes a live sample OrthoSec HTML report to GitHub Pages.
-# The report is generated fresh from the bundled vulnerable demo on every push,
-# so the published page is always a real product output, never a stale mock.
+# Publishes the OrthoSec docs site + a sample HTML report to GitHub Pages.
 #
-# One-time setup: repo Settings -> Pages -> Build and deployment -> Source:
-#   "GitHub Actions". Then the page is served at
-#   https://cloudivian-org.github.io/OrthoSec/
+# The sample report (docs/sample-report.html) is a real product output committed to the
+# repo — generated locally with the executive-briefing (intel) layer enabled, which needs a
+# model key. We deploy it as a static file rather than regenerating in CI so NO model key
+# ever lives in Actions. Refresh it by re-running the scan locally and committing the result:
+#   orthosec scan <demo> --profile ciso --html docs/sample-report.html
+#
+# One-time setup: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Served at https://cloudivian-org.github.io/OrthoSec/
 name: Pages
 
 on:
@@ -30,30 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install OrthoSec (+ intel for the executive briefing)
-        run: pip install -e ".[intel]"
-
-      - name: Build docs site + live sample report
-        env:
-          # The live report includes the LLM executive briefing when a model key is set as
-          # a repo secret. Without it the scan fails open to the deterministic summary — the
-          # report still builds, just without the board-level narrative. Optionally set an
-          # ORTHOSEC_MODEL repo variable to pick a cheaper model for this per-push sample.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ORTHOSEC_MODEL: ${{ vars.ORTHOSEC_MODEL }}
+      - name: Assemble the site
         run: |
           mkdir -p _site/report
-          # Docs landing page (self-contained, theme-aware).
-          cp site/index.html _site/index.html
-          # Live sample report, regenerated fresh from the bundled vulnerable demo. The CISO
-          # profile surfaces the executive briefing (business risk + regulatory exposure).
-          orthosec scan examples/vulnerable-agent \
-            --profile ciso --fail-on none \
-            --html _site/report/index.html
+          cp site/index.html _site/index.html          # docs landing (self-contained)
+          cp docs/sample-report.html _site/report/index.html   # sample report (with exec briefing)
 
       - uses: actions/upload-pages-artifact@v3
         with:

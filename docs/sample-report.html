@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrthoSec — AI Security Report</title>
+<style>
+  :root {
+    --bg: #f4f7fa; --panel: #ffffff; --panel2: #f8fafc; --ink: #0f1720; --muted: #5b6673;
+    --line: #e4e9f0; --accent: #0f9e8f; --accent-ink: #04120f;
+    --crit: #e5484d; --high: #ef6c3b; --med: #d9a326; --low: #3f8fd6; --info: #8b95a1;
+    --good: #2ea043; --shadow: 0 1px 2px rgba(15,23,32,.05), 0 10px 26px rgba(15,23,32,.05);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b0f14; --panel:#131a22; --panel2:#0f151c; --ink:#e6edf3; --muted:#8b98a8;
+      --line:#232d38; --accent:#2bd4c0; --accent-ink:#04120f; --crit:#ff6169; --high:#ff8a4c;
+      --med:#e8bd4a; --low:#5aa9ef; --info:#8b95a1; --good:#46c265;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 30px rgba(0,0,0,.35); }
+  }
+  :root[data-theme="light"] { --bg:#f4f7fa; --panel:#fff; --panel2:#f8fafc; --ink:#0f1720; --muted:#5b6673;
+    --line:#e4e9f0; --accent:#0f9e8f; --accent-ink:#04120f; --crit:#e5484d; --high:#ef6c3b;
+    --med:#d9a326; --low:#3f8fd6; --info:#8b95a1; --good:#2ea043;
+    --shadow:0 1px 2px rgba(15,23,32,.05), 0 10px 26px rgba(15,23,32,.05); }
+  :root[data-theme="dark"] { --bg:#0b0f14; --panel:#131a22; --panel2:#0f151c; --ink:#e6edf3; --muted:#8b98a8;
+    --line:#232d38; --accent:#2bd4c0; --accent-ink:#04120f; --crit:#ff6169; --high:#ff8a4c;
+    --med:#e8bd4a; --low:#5aa9ef; --info:#8b95a1; --good:#46c265;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 30px rgba(0,0,0,.35); }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height:1.55;
+    -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 34px 20px 120px; }
+  code, .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace; }
+  header.top { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  .brand { font-weight:800; letter-spacing:-.02em; font-size:21px; }
+  .brand span { color:var(--accent); }
+  .sub { color:var(--muted); font-size:13px; }
+  .target { color:var(--muted); font-size:12.5px; margin-top:3px; word-break:break-all; }
+
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:22px 0 4px; }
+  .tab { border:1px solid var(--line); background:var(--panel); color:var(--muted);
+    padding:7px 14px; border-radius:999px; font-size:13px; font-weight:600; cursor:pointer; transition:.15s; }
+  .tab:hover { color:var(--ink); border-color:var(--accent); }
+  .tab[aria-selected="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .tab:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .audience { color:var(--muted); font-size:13px; margin:8px 2px 0; }
+
+  .summary { display:grid; grid-template-columns:auto 1fr; gap:24px; align-items:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:22px 24px; margin:18px 0; box-shadow:var(--shadow); }
+  .ring { position:relative; width:132px; height:132px; }
+  .ring svg { transform:rotate(-90deg); }
+  .ring .score { position:absolute; inset:0; display:grid; place-content:center; text-align:center; }
+  .ring .score b { font-size:36px; font-weight:800; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
+  .ring .score .of { font-size:12px; color:var(--muted); }
+  .grade { font-size:11px; font-weight:800; margin-top:5px; letter-spacing:.05em; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; gap:7px; padding:6px 11px; border-radius:10px;
+    background:var(--panel2); border:1px solid var(--line); font-size:13px; font-weight:600; }
+  .chip .dot { width:9px; height:9px; border-radius:3px; }
+  .chip .n { font-variant-numeric:tabular-nums; }
+  .sevbar { display:flex; height:9px; border-radius:6px; overflow:hidden; margin-top:14px; border:1px solid var(--line); background:var(--panel2); }
+  .sevbar span { display:block; min-width:2px; }
+  .owaspwrap { margin:2px 0 4px; }
+  .owasp { display:flex; gap:6px; flex-wrap:wrap; }
+  .ocat { font-size:11px; font-weight:750; letter-spacing:.02em; padding:4px 9px; border-radius:8px;
+    border:1px solid var(--line); background:var(--panel2); color:var(--muted); }
+  .ocat.hit { color:#fff; border-color:transparent; }
+  .ocat .oc-n { font-variant-numeric:tabular-nums; opacity:.85; margin-left:3px; }
+  .btnp { border:1px solid var(--line); background:var(--panel); color:var(--muted); font-size:12px;
+    font-weight:650; padding:6px 12px; border-radius:8px; cursor:pointer; }
+  .btnp:hover { color:var(--ink); border-color:var(--accent); }
+  @page { margin: 14mm; }
+  @media print {
+    /* Force a legible light palette regardless of the on-screen theme, and make
+       browsers actually paint severity colors (backgrounds are dropped by default). */
+    :root, :root[data-theme="dark"], :root[data-theme="light"] {
+      --bg:#fff; --panel:#fff; --panel2:#fff; --ink:#0f1720; --muted:#455; --line:#c9d2dd;
+      --accent:#0b7d71; --accent-ink:#fff; --crit:#c0392b; --high:#c05a26; --med:#9a6f16;
+      --low:#2f6fb0; --info:#6b7480; --good:#1f7a34; --shadow:none;
+    }
+    * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    html, body { background:#fff !important; }
+    .wrap { max-width:100%; padding:0; }
+    /* Hide interactive-only chrome */
+    .tabs, .btnp, .actionbar, .selbox { display:none !important; }
+    /* Keep cards, traces, and tables intact across page breaks */
+    .finding, .card, .fw, .exec, .summary, .cards > *, details, table, tr {
+      box-shadow:none !important; break-inside:avoid; page-break-inside:avoid; }
+    h2.section, .fh { break-after:avoid; }
+    /* Force every <details> (data-flow, remediation plan) fully expanded on paper */
+    details > summary { list-style:none; }
+    details > summary::before { content:"" !important; }
+    details > *:not(summary) { display:block !important; }
+    details::details-content { content-visibility:visible !important; display:block !important; }
+    a { color:inherit; text-decoration:none; }
+  }
+  .conf { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:650; color:var(--muted);
+    text-transform:capitalize; padding:2px 8px; border:1px solid var(--line); border-radius:20px; white-space:nowrap; }
+  .conf .cdot { width:7px; height:7px; border-radius:50%; }
+  .flow { margin:10px 0 4px; border:1px solid var(--line); border-radius:9px; background:var(--panel2); overflow:hidden; }
+  .flow > summary { cursor:pointer; font-size:12px; font-weight:650; color:var(--ink); padding:8px 12px; list-style:none; }
+  .flow > summary::-webkit-details-marker { display:none; }
+  .flow > summary::before { content:"▸ "; color:var(--muted); }
+  .flow[open] > summary::before { content:"▾ "; }
+  .trow { display:flex; align-items:baseline; gap:8px; padding:5px 12px 5px 22px; border-top:1px solid var(--line);
+    position:relative; }
+  .trow::before { content:""; position:absolute; left:14px; top:0; bottom:0; width:2px; background:var(--line); }
+  .trole { font-size:10px; font-weight:750; letter-spacing:.03em; text-transform:uppercase; padding:1px 6px;
+    border-radius:5px; color:#fff; white-space:nowrap; flex:none; }
+  .trole-source { background:var(--high); } .trole-propagates { background:var(--muted); }
+  .trole-tool { background:var(--med); } .trole-sink { background:var(--crit); }
+  .tline { color:var(--muted); font-size:11px; flex:none; }
+  .tsnip { font-size:11.5px; color:var(--ink); overflow-wrap:anywhere; }
+
+  h2.section { font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
+    margin:32px 0 12px; font-weight:800; }
+
+  .finding { background:var(--panel); border:1px solid var(--line); border-left-width:4px;
+    border-radius:12px; padding:15px 17px; margin:11px 0; box-shadow:var(--shadow); }
+  .finding.sel { outline:2px solid var(--accent); outline-offset:1px; }
+  .fh { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .fh .grow { flex:1; min-width:200px; }
+  .selbox { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; flex:none; }
+  .sev { font-size:10.5px; font-weight:800; letter-spacing:.05em; padding:3px 7px; border-radius:6px; color:#fff; }
+  .title { font-weight:650; }
+  .loc { color:var(--muted); font-size:12.5px; }
+  .meta { color:var(--muted); font-size:12.5px; margin-top:6px; }
+  .kv { margin-top:9px; font-size:13.5px; }
+  .kv b { color:var(--muted); font-weight:600; }
+  .ev { display:block; margin-top:5px; padding:9px 11px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:8px; font-size:12.5px; overflow-x:auto; white-space:pre; }
+  .rid { color:var(--muted); font-size:11px; margin-top:9px; }
+
+  .agentbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:11px;
+    padding-top:11px; border-top:1px dashed var(--line); }
+  .agent { display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:650;
+    padding:5px 11px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); }
+  .agent .gear { color:var(--accent); }
+  .mode { font-size:10.5px; font-weight:800; letter-spacing:.04em; padding:3px 8px; border-radius:999px; }
+  .mode.auto { background:color-mix(in srgb, var(--good) 16%, transparent); color:var(--good); border:1px solid color-mix(in srgb, var(--good) 40%, transparent); }
+  .mode.manual { background:color-mix(in srgb, var(--info) 16%, transparent); color:var(--muted); border:1px solid var(--line); }
+  details.plan { margin-top:9px; }
+  details.plan summary { cursor:pointer; font-size:12.5px; color:var(--accent); font-weight:650; list-style:none; }
+  details.plan summary::-webkit-details-marker { display:none; }
+  details.plan summary::before { content:"▸ "; }
+  details.plan[open] summary::before { content:"▾ "; }
+  details.plan ol { margin:8px 0 2px; padding-left:20px; font-size:13px; color:var(--ink); }
+  details.plan li { margin:3px 0; }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; box-shadow:var(--shadow); }
+  .card .lab { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .card .big { font-size:23px; font-weight:800; letter-spacing:-.02em; margin-top:5px; font-variant-numeric:tabular-nums; }
+  .card .note { font-size:12px; color:var(--muted); margin-top:7px; }
+  .frameworks { display:flex; flex-direction:column; gap:10px; }
+  .fw { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 15px; box-shadow:var(--shadow); }
+  .fw .name { font-weight:700; font-size:13px; }
+  .fw .ctrls { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .pill { font-size:12px; padding:3px 9px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); }
+
+  /* Executive briefing — rendered markdown */
+  .exec { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:6px 24px 20px; box-shadow:var(--shadow); }
+  .exec h1 { font-size:19px; margin:20px 0 6px; letter-spacing:-.02em; }
+  .exec h2 { font-size:14px; text-transform:none; letter-spacing:0; color:var(--ink); margin:20px 0 8px; font-weight:750; }
+  .exec h3 { font-size:13px; margin:16px 0 6px; }
+  .exec p { font-size:14px; margin:9px 0; }
+  .exec ul, .exec ol { font-size:14px; padding-left:22px; margin:9px 0; }
+  .exec li { margin:4px 0; }
+  .exec strong { font-weight:700; }
+  .exec code { background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-size:12.5px; }
+  .exec hr { border:none; border-top:1px solid var(--line); margin:16px 0; }
+  .exec table { border-collapse:collapse; width:100%; margin:12px 0; font-size:13px; display:block; overflow-x:auto; }
+  .exec th, .exec td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  .exec th { background:var(--panel2); font-weight:700; }
+  .exec tr:nth-child(even) td { background:color-mix(in srgb, var(--panel2) 55%, transparent); }
+
+  .empty { color:var(--muted); font-size:14px; padding:20px; text-align:center; }
+  footer { color:var(--muted); font-size:12px; margin-top:44px; border-top:1px solid var(--line); padding-top:14px; }
+
+  /* Remediation action bar */
+  .actionbar { position:fixed; left:50%; transform:translateX(-50%); bottom:18px; max-width:960px; width:calc(100% - 40px);
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,.22);
+    padding:12px 16px; display:none; align-items:center; gap:12px; flex-wrap:wrap; z-index:20; }
+  .actionbar.show { display:flex; }
+  .actionbar .count { font-weight:750; font-size:13.5px; white-space:nowrap; }
+  .actionbar .cmd { flex:1; min-width:220px; font-size:12.5px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; overflow-x:auto; white-space:pre; }
+  .actionbar label { font-size:12.5px; color:var(--muted); display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+  .btn { border:1px solid var(--accent); background:var(--accent); color:var(--accent-ink); font-weight:700;
+    font-size:13px; padding:8px 14px; border-radius:9px; cursor:pointer; white-space:nowrap; }
+  .btn.ghost { background:transparent; color:var(--muted); border-color:var(--line); }
+  .btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  @media (max-width:560px){ .summary{ grid-template-columns:1fr; justify-items:center; text-align:center; } }
+  @media (prefers-reduced-motion: reduce){ * { transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand">Ortho<span>Sec</span> — AI Security Report</div>
+      <div class="target mono">/private/tmp/vulnerable-agent</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px">
+      <div class="sub" id="genstamp"></div>
+      <button class="btnp" onclick="downloadReport()">Download .html</button>
+      <button class="btnp" onclick="printReport()">Print / PDF</button>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Audience profile" id="tabs"></div>
+  <div class="audience" id="audience"></div>
+
+  <section class="summary">
+    <div class="ring" aria-hidden="true">
+      <svg width="132" height="132" viewBox="0 0 132 132">
+        <circle cx="66" cy="66" r="58" fill="none" stroke="var(--line)" stroke-width="12"></circle>
+        <circle id="arc" cx="66" cy="66" r="58" fill="none" stroke-width="12" stroke-linecap="round"></circle>
+      </svg>
+      <div class="score"><b id="scoreNum">0</b><div class="of">/ 100</div><div class="grade" id="gradeTxt"></div></div>
+    </div>
+    <div>
+      <div class="chips" id="sevChips"></div>
+      <div class="sevbar" id="sevbar" aria-hidden="true"></div>
+      <div class="meta" id="posture-note" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <div class="owaspwrap"><h2 class="section" style="margin:20px 0 10px">OWASP LLM Top-10 coverage</h2>
+    <div class="owasp" id="owaspstrip"></div></div>
+
+  <div id="business"></div>
+  <div id="compliance"></div>
+
+  <div id="execWrap" style="display:none">
+    <h2 class="section">Executive Briefing</h2>
+    <div class="exec" id="exec"></div>
+  </div>
+
+  <h2 class="section" id="findings-head">Findings</h2>
+  <div id="findings"></div>
+
+  <footer>Generated by OrthoSec · deterministic detectors + grounded intel · <span id="fcount"></span></footer>
+</div>
+
+<div class="actionbar" id="actionbar" role="region" aria-label="Remediation">
+  <span class="count" id="selcount">0 selected</span>
+  <code class="cmd mono" id="cmd"></code>
+  <label><input type="checkbox" id="autochk"> auto-fix</label>
+  <button class="btn" id="copybtn">Copy command</button>
+  <button class="btn ghost" id="clearbtn">Clear</button>
+</div>
+
+<script>
+const DATA = {"root": "/private/tmp/vulnerable-agent", "score": 31, "grade": "F", "severity_counts": {"CRITICAL": 2, "HIGH": 4, "MEDIUM": 3}, "generated": "2026-08-03 19:19", "exec_summary": "# AI Security Briefing \u2014 OrthoSec Scan Results\n**Classification: Executive Restricted | Prepared by OrthoSec AI Security**\n\n---\n\n## Bottom Line\n\nOur AI system is critically exposed. The posture score is **31 out of 100 (grade: F)**. Two critical and four high-severity vulnerabilities are present in production code today. The system can be weaponized by an attacker to execute arbitrary commands, exfiltrate data, and self-fund runaway API costs \u2014 with no human checkpoint to stop it.\n\n**Annualized Loss Exposure: $730K\u2013$13.3M** (order-of-magnitude bands based on severity; not actuarial).\n\n---\n\n## What Is at Risk\n\n| Threat | Severity | Business Consequence |\n|---|---|---|\n| AI agent can execute shell commands & make arbitrary outbound HTTP calls | **2\u00d7 CRITICAL** | Attacker directs the agent as a weapon \u2014 operational disruption, data breach, financial loss |\n| Attacker-controlled input manipulates AI instructions | **2\u00d7 HIGH** | Policy bypass, data exfiltration, tool misuse |\n| AI output fed directly into code execution | **1\u00d7 HIGH** | Remote code execution inside our infrastructure |\n| Untrusted model artifact loaded at runtime | **1\u00d7 HIGH** | Attacker code runs inside our trust boundary at startup |\n| Unbounded API loops / no token caps | **2\u00d7 MEDIUM** | Denial-of-wallet; cost blowout with no circuit breaker |\n| Attacker content poisoning the retrieval corpus | **1\u00d7 MEDIUM** | AI returns attacker-controlled \"facts\" to users and downstream systems |\n\n---\n\n## Regulatory Exposure\n\nThese findings trigger obligations across **five frameworks** simultaneously:\n\n- **EU AI Act** \u2014 Arts. 9, 10, 12, 14, 15: risk management, data governance, human oversight, and cybersecurity of high-risk systems\n- **ISO 42001 / NIST AI RMF** \u2014 AI impact assessment, resource allocation, verification & validation\n- **SOC 2** \u2014 Security event detection and change management controls\n- **ISO 27001 / NIST CSF** \u2014 Secure development lifecycle, continuous monitoring, data security\n\nNon-remediation creates audit findings and potential regulatory enforcement exposure across all active compliance programs.\n\n---\n\n## Prioritized Action Plan\n\n| Priority | Action | Effort |\n|---|---|---|\n| **P1 \u2014 Days** | Disable or hard-restrict the shell and outbound HTTP agent tools; add human confirmation gates | Low\u2013Medium |\n| **P1 \u2014 Days** | Remove `eval`/`exec` of AI-generated output; block pending architectural fix | Low |\n| **P2 \u2014 2 Weeks** | Enforce trust boundaries between user input and system instructions | Medium |\n| **P2 \u2014 2 Weeks** | Replace unsafe model-artifact loading with integrity-verified alternatives | Medium |\n| **P3 \u2014 1 Month** | Implement token caps, rate limits, loop bounds, and retrieval corpus provenance controls | Medium |\n\n---\n\n**Recommendation:** Authorize immediate P1 remediation. Schedule a follow-on scan within 30 days to validate closure.", "business_risk": {"ale_low_usd": 730000, "ale_high_usd": 13300000, "basis": "Order-of-magnitude severity bands; configurable. Not an actuarial figure.", "risk_drivers": [{"owasp": "LLM06", "consequence": "Agent takes real-world actions attacker directs \u2014 financial/operational loss.", "count": 2, "max_severity": "CRITICAL"}, {"owasp": "LLM01", "consequence": "Attacker steers the model to bypass policy, exfiltrate data, or misuse tools.", "count": 2, "max_severity": "HIGH"}, {"owasp": "LLM05", "consequence": "Unsafe model output drives downstream systems (XSS, SQLi, RCE).", "count": 1, "max_severity": "HIGH"}, {"owasp": "LLM03", "consequence": "Compromised dependency/model executes attacker code inside your trust boundary.", "count": 1, "max_severity": "HIGH"}, {"owasp": "LLM10", "consequence": "Uncapped consumption enables cost-blowout / denial-of-wallet.", "count": 2, "max_severity": "MEDIUM"}, {"owasp": "LLM08", "consequence": "Retrieval corpus manipulation returns attacker-controlled context.", "count": 1, "max_severity": "MEDIUM"}]}, "compliance": {"EU_AI_ACT": [{"control": "Art.10", "description": "Data and data governance", "triggered_by": ["ORTHO-RAG-001"]}, {"control": "Art.12", "description": "Record-keeping and logging", "triggered_by": ["ORTHO-CONSUME-001", "ORTHO-CONSUME-002"]}, {"control": "Art.14", "description": "Human oversight", "triggered_by": ["ORTHO-AGENCY-001", "ORTHO-PI-001"]}, {"control": "Art.15", "description": "Accuracy, robustness and cybersecurity of high-risk AI systems", "triggered_by": ["ORTHO-CONSUME-001", "ORTHO-CONSUME-002", "ORTHO-OUTPUT-001", "ORTHO-PI-001", "ORTHO-SUPPLY-001"]}, {"control": "Art.9", "description": "Risk management system", "triggered_by": ["ORTHO-AGENCY-001"]}], "NIST_AI_RMF": [{"control": "MANAGE-2.1", "description": "Resources to manage AI risks are allocated", "triggered_by": ["ORTHO-AGENCY-001", "ORTHO-SUPPLY-001"]}, {"control": "MEASURE-2.7", "description": "AI system security and resilience are evaluated", "triggered_by": ["ORTHO-PI-001"]}], "ISO_42001": [{"control": "A.6.2.4", "description": "AI system verification and validation", "triggered_by": ["ORTHO-PI-001", "ORTHO-RAG-001"]}, {"control": "A.8.2", "description": "AI system impact assessment", "triggered_by": ["ORTHO-AGENCY-001", "ORTHO-SUPPLY-001"]}], "NIST_CSF": [{"control": "DE.CM", "description": "Continuous monitoring (detect)", "triggered_by": ["ORTHO-CONSUME-001", "ORTHO-CONSUME-002"]}, {"control": "ID.RA", "description": "Risk assessment (identify)", "triggered_by": ["ORTHO-SUPPLY-001"]}, {"control": "PR.DS", "description": "Data security (protect)", "triggered_by": ["ORTHO-RAG-001"]}, {"control": "PR.PS", "description": "Platform security / secure configuration (protect)", "triggered_by": ["ORTHO-AGENCY-001", "ORTHO-OUTPUT-001", "ORTHO-PI-001"]}], "SOC2": [{"control": "CC7.1", "description": "Detection of security events", "triggered_by": ["ORTHO-CONSUME-001", "ORTHO-CONSUME-002", "ORTHO-OUTPUT-001"]}, {"control": "CC8.1", "description": "Change management", "triggered_by": ["ORTHO-SUPPLY-001"]}], "ISO_27001": [{"control": "A.5.23", "description": "Information security for use of cloud/AI services", "triggered_by": ["ORTHO-CONSUME-001", "ORTHO-CONSUME-002"]}, {"control": "A.8.25", "description": "Secure development life cycle", "triggered_by": ["ORTHO-SUPPLY-001"]}, {"control": "A.8.28", "description": "Secure coding", "triggered_by": ["ORTHO-OUTPUT-001", "ORTHO-PI-001"]}]}, "owasp_names": {"LLM01": "Prompt Injection", "LLM02": "Sensitive Information Disclosure", "LLM03": "Supply Chain", "LLM04": "Data and Model Poisoning", "LLM05": "Improper Output Handling", "LLM06": "Excessive Agency", "LLM07": "System Prompt Leakage", "LLM08": "Vector and Embedding Weaknesses", "LLM09": "Misinformation", "LLM10": "Unbounded Consumption"}, "findings": [{"rule_id": "ORTHO-AGENCY-001", "title": "Model-invokable tool 'run_command' can reach shell/command execution with no confirmation gate", "severity": "CRITICAL", "sev_value": 5, "owasp": "LLM06", "owasp_name": "Excessive Agency", "atlas": ["AML.T0053"], "confidence": 0.85, "trace": [{"line": 24, "role": "tool", "snippet": "tool `run_command` is model-invokable \u2014 def run_command(cmd):  # exposed to the model as a tool"}, {"line": 25, "role": "sink", "snippet": "return subprocess.run(cmd, shell=True, capture_output=True).stdout"}], "location": "agent.py:25", "evidence": "return subprocess.run(cmd, shell=True, capture_output=True).stdout", "remediation": "Scope the tool to the minimum capability, add an allowlist, and gate irreversible/high-impact actions behind human confirmation. Never pass model output unsanitized into shell/SQL/file sinks.", "business": "Agent takes real-world actions attacker directs \u2014 financial/operational loss.", "agent": "Agency Gate Agent", "agent_id": "agency-gate", "auto": true, "plan": ["Scope the tool to the minimum capability it needs; add an allowlist.", "Gate irreversible/high-impact actions behind explicit human confirmation.", "Never pass model output unsanitized into shell/SQL/file sinks."]}, {"rule_id": "ORTHO-AGENCY-001", "title": "Model-invokable tool 'fetch_url' can reach arbitrary outbound HTTP with no confirmation gate", "severity": "CRITICAL", "sev_value": 5, "owasp": "LLM06", "owasp_name": "Excessive Agency", "atlas": ["AML.T0053"], "confidence": 0.85, "trace": [{"line": 29, "role": "tool", "snippet": "tool `fetch_url` is model-invokable \u2014 def fetch_url(url):"}, {"line": 30, "role": "sink", "snippet": "return requests.get(url).text"}], "location": "agent.py:30", "evidence": "return requests.get(url).text", "remediation": "Scope the tool to the minimum capability, add an allowlist, and gate irreversible/high-impact actions behind human confirmation. Never pass model output unsanitized into shell/SQL/file sinks.", "business": "Agent takes real-world actions attacker directs \u2014 financial/operational loss.", "agent": "Agency Gate Agent", "agent_id": "agency-gate", "auto": true, "plan": ["Scope the tool to the minimum capability it needs; add an allowlist.", "Gate irreversible/high-impact actions behind explicit human confirmation.", "Never pass model output unsanitized into shell/SQL/file sinks."]}, {"rule_id": "ORTHO-OUTPUT-001", "title": "LLM output flows into code execution (eval/exec) without sanitization", "severity": "HIGH", "sev_value": 4, "owasp": "LLM05", "owasp_name": "Improper Output Handling", "atlas": ["AML.T0051"], "confidence": 0.8, "trace": [{"line": 44, "role": "source", "snippet": "response = client.chat(build_prompt(user_input))"}, {"line": 45, "role": "propagates", "snippet": "llm_output = response.content"}, {"line": 46, "role": "sink", "snippet": "return eval(llm_output)  # model output executed as code \u2014 RCE on injection"}], "location": "agent.py:46", "evidence": "return eval(llm_output)  # model output executed as code \u2014 RCE on injection", "remediation": "Treat model output as untrusted input to the downstream system. Validate against a schema, escape/parameterize before the sink, and never eval/exec or string-concatenate it into SQL/HTML/shell.", "business": "Unsafe model output drives downstream systems (XSS, SQLi, RCE).", "agent": "Output Sanitizer Agent", "agent_id": "output-sanitizer", "auto": true, "plan": ["Validate model output against a strict schema (types, enum, length).", "Escape/parameterize before the sink; never eval/exec or string-concat into SQL/HTML/shell.", "Fail closed on validation error."]}, {"rule_id": "ORTHO-PI-001", "title": "Untrusted input reaches a system prompt without a trust boundary", "severity": "HIGH", "sev_value": 4, "owasp": "LLM01", "owasp_name": "Prompt Injection", "atlas": ["AML.T0051", "AML.T0051.000"], "confidence": 0.7, "trace": [{"line": 15, "role": "source", "snippet": "def build_prompt(user_input):"}, {"line": 16, "role": "sink", "snippet": "system_prompt = \"You are a helpful assistant. The user said: \" + user_input"}], "location": "agent.py:16", "evidence": "system_prompt = \"You are a helpful assistant. The user said: \" + user_input", "remediation": "Separate instructions from data: place user input inside explicit delimiters, instruct the model to treat it as data, and add an output/instruction-override guard.", "business": "Attacker steers the model to bypass policy, exfiltrate data, or misuse tools.", "agent": "Prompt Boundary Agent", "agent_id": "prompt-boundary", "auto": true, "plan": ["Move user/tool input out of the instruction string into a clearly delimited block.", "Add an explicit instruction: treat delimited content as data, never as commands.", "Add an instruction-override guard and a 'do not reveal the system prompt' clause."]}, {"rule_id": "ORTHO-SUPPLY-001", "title": "pickle deserialization \u2014 code executes at load time", "severity": "HIGH", "sev_value": 4, "owasp": "LLM03", "owasp_name": "Supply Chain", "atlas": ["AML.T0010", "AML.T0018"], "confidence": 0.7, "trace": [], "location": "agent.py:39", "evidence": "return pickle.load(f)", "remediation": "Prefer safetensors; for torch use weights_only=True; for yaml use SafeLoader. Only load artifacts from trusted, integrity-checked sources.", "business": "Compromised dependency/model executes attacker code inside your trust boundary.", "agent": "Safe Loader Agent", "agent_id": "safe-loader", "auto": true, "plan": ["Prefer safetensors; for torch pass weights_only=True; for yaml use SafeLoader.", "Pin the artifact source to a trusted, integrity-verified revision.", "Verify a checksum/signature before loading."]}, {"rule_id": "ORTHO-PI-001", "title": "Untrusted input reaches a system prompt without a trust boundary", "severity": "HIGH", "sev_value": 4, "owasp": "LLM01", "owasp_name": "Prompt Injection", "atlas": ["AML.T0051", "AML.T0051.000"], "confidence": 0.7, "trace": [], "location": "agent.py:44", "evidence": "response = client.chat(build_prompt(user_input))", "remediation": "Separate instructions from data: place user input inside explicit delimiters, instruct the model to treat it as data, and add an output/instruction-override guard.", "business": "Attacker steers the model to bypass policy, exfiltrate data, or misuse tools.", "agent": "Prompt Boundary Agent", "agent_id": "prompt-boundary", "auto": true, "plan": ["Move user/tool input out of the instruction string into a clearly delimited block.", "Add an explicit instruction: treat delimited content as data, never as commands.", "Add an instruction-override guard and a 'do not reveal the system prompt' clause."]}, {"rule_id": "ORTHO-CONSUME-001", "title": "LLM call without an output-token cap", "severity": "MEDIUM", "sev_value": 3, "owasp": "LLM10", "owasp_name": "Unbounded Consumption", "atlas": [], "confidence": 0.6, "trace": [], "location": "agent.py:59", "evidence": "reply = client.messages.create(model=\"m\", messages=[{\"role\": \"user\", \"content\": task}])", "remediation": "Set max_tokens (and a request timeout). Cap per-user/token budgets and rate-limit to prevent denial-of-wallet.", "business": "Uncapped consumption enables cost-blowout / denial-of-wallet.", "agent": "Rate Limiter Agent", "agent_id": "rate-limiter", "auto": true, "plan": ["Set max_tokens and a request timeout on every model call.", "Bound agent loops with max iterations/steps and a wall-clock deadline.", "Enforce per-user token budgets and rate limits; fail closed at the cap."]}, {"rule_id": "ORTHO-RAG-001", "title": "Untrusted content ingested into retrieval corpus without provenance", "severity": "MEDIUM", "sev_value": 3, "owasp": "LLM08", "owasp_name": "Vector and Embedding Weaknesses", "atlas": ["AML.T0051.001", "AML.T0018"], "confidence": 0.55, "trace": [], "location": "agent.py:53", "evidence": "vectorstore.add_texts([page])  # attacker-controlled page becomes \"trusted\" context", "remediation": "Establish provenance for everything indexed: sanitize fetched/uploaded content, restrict to trusted sources, and treat retrieved chunks as data (delimited, non-authoritative) at prompt-assembly time.", "business": "Retrieval corpus manipulation returns attacker-controlled context.", "agent": "Provenance Agent", "agent_id": "provenance", "auto": false, "plan": ["Restrict ingestion to vetted, trusted sources.", "Sanitize fetched/uploaded content before indexing.", "Treat retrieved chunks as delimited, non-authoritative data at prompt time."]}, {"rule_id": "ORTHO-CONSUME-002", "title": "Unbounded loop around LLM/agent calls (no exit bound)", "severity": "MEDIUM", "sev_value": 3, "owasp": "LLM10", "owasp_name": "Unbounded Consumption", "atlas": [], "confidence": 0.55, "trace": [], "location": "agent.py:58", "evidence": "while True:", "remediation": "Bound the loop: max iterations/steps, a wall-clock deadline, and a token budget. Fail closed when a limit is hit.", "business": "Uncapped consumption enables cost-blowout / denial-of-wallet.", "agent": "Rate Limiter Agent", "agent_id": "rate-limiter", "auto": true, "plan": ["Set max_tokens and a request timeout on every model call.", "Bound agent loops with max iterations/steps and a wall-clock deadline.", "Enforce per-user token budgets and rate limits; fail closed at the cap."]}], "profiles": {"engineer": {"label": "AI/ML Engineer", "audience": "the engineer who ships and fixes the AI system", "severity_floor": 2, "show_findings": true, "show_evidence": true, "show_remediation": true, "show_business": false, "show_compliance": false}, "appsec": {"label": "Security / AppSec Engineer", "audience": "a security engineer threat-modeling the AI system", "severity_floor": 2, "show_findings": true, "show_evidence": true, "show_remediation": true, "show_business": true, "show_compliance": false}, "ciso": {"label": "CISO / Security Leader", "audience": "a security executive briefing leadership or the board", "severity_floor": 3, "show_findings": false, "show_evidence": false, "show_remediation": false, "show_business": true, "show_compliance": true}, "product": {"label": "AI Product / Eng Leader", "audience": "a product or engineering leader balancing risk against ship velocity", "severity_floor": 3, "show_findings": true, "show_evidence": false, "show_remediation": true, "show_business": true, "show_compliance": true}}};
+const SEV_COLOR = { CRITICAL:"var(--crit)", HIGH:"var(--high)", MEDIUM:"var(--med)", LOW:"var(--low)", INFO:"var(--info)" };
+const GRADE_COLOR = { A:"var(--good)", B:"var(--good)", C:"var(--med)", D:"var(--high)", F:"var(--crit)" };
+const SEV_ORDER = ["CRITICAL","HIGH","MEDIUM","LOW","INFO"];
+const FLOOR_NAME = ["","INFO","LOW","MEDIUM","HIGH","CRITICAL"];
+let current = "ciso";
+const selected = new Set();
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = n => "$" + Number(n).toLocaleString("en-US");
+
+/* --- tiny markdown renderer (headings, hr, bold, code, tables, lists, paragraphs) --- */
+function inlineMd(s){
+  s = esc(s);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+  return s;
+}
+function splitRow(line){ return line.trim().replace(/^\|/,"").replace(/\|$/,"").split("|").map(c=>c.trim()); }
+function mdToHtml(md){
+  const L = md.replace(/\r/g,"").split("\n"); let out=""; let i=0;
+  const isBlank = s=>/^\s*$/.test(s), isH=s=>/^#{1,6}\s/.test(s), isHr=s=>/^\s*([-*_])\1{2,}\s*$/.test(s),
+        isRow=s=>/^\s*\|.*\|\s*$/.test(s), isUl=s=>/^\s*[-*]\s+/.test(s), isOl=s=>/^\s*\d+\.\s+/.test(s);
+  while(i<L.length){
+    const line=L[i];
+    if(isBlank(line)){ i++; continue; }
+    if(isH(line)){ const m=line.match(/^(#{1,6})\s+(.*)/); out+=`<h${m[1].length}>${inlineMd(m[2])}</h${m[1].length}>`; i++; continue; }
+    if(isHr(line)){ out+="<hr>"; i++; continue; }
+    if(isRow(line) && i+1<L.length && /-/.test(L[i+1]) && /^\s*\|?[\s:|-]+\|?\s*$/.test(L[i+1])){
+      const head=splitRow(line); i+=2; const rows=[];
+      while(i<L.length && isRow(L[i])){ rows.push(splitRow(L[i])); i++; }
+      out+="<table><thead><tr>"+head.map(c=>`<th>${inlineMd(c)}</th>`).join("")+"</tr></thead><tbody>"+
+        rows.map(r=>"<tr>"+r.map(c=>`<td>${inlineMd(c)}</td>`).join("")+"</tr>").join("")+"</tbody></table>"; continue;
+    }
+    if(isUl(line)){ const it=[]; while(i<L.length&&isUl(L[i])){ it.push(L[i].replace(/^\s*[-*]\s+/,"")); i++; }
+      out+="<ul>"+it.map(x=>`<li>${inlineMd(x)}</li>`).join("")+"</ul>"; continue; }
+    if(isOl(line)){ const it=[]; while(i<L.length&&isOl(L[i])){ it.push(L[i].replace(/^\s*\d+\.\s+/,"")); i++; }
+      out+="<ol>"+it.map(x=>`<li>${inlineMd(x)}</li>`).join("")+"</ol>"; continue; }
+    const para=[line]; i++;
+    while(i<L.length && !isBlank(L[i]) && !isH(L[i]) && !isHr(L[i]) && !isRow(L[i]) && !isUl(L[i]) && !isOl(L[i])){ para.push(L[i]); i++; }
+    out+=`<p>${inlineMd(para.join(" "))}</p>`;
+  }
+  return out;
+}
+
+function renderTabs(){
+  const t=document.getElementById("tabs"); t.innerHTML="";
+  for(const [id,p] of Object.entries(DATA.profiles)){
+    const b=document.createElement("button"); b.className="tab"; b.role="tab"; b.textContent=p.label;
+    b.setAttribute("aria-selected", id===current); b.onclick=()=>{ current=id; render(); };
+    t.appendChild(b);
+  }
+}
+function renderRing(){
+  const r=58, circ=2*Math.PI*r, arc=document.getElementById("arc");
+  arc.style.stroke=GRADE_COLOR[DATA.grade]||"var(--accent)";
+  arc.setAttribute("stroke-dasharray",circ);
+  arc.setAttribute("stroke-dashoffset",circ*(1-DATA.score/100));
+  document.getElementById("scoreNum").textContent=DATA.score;
+  const g=document.getElementById("gradeTxt"); g.textContent="GRADE "+DATA.grade; g.style.color=GRADE_COLOR[DATA.grade];
+}
+function renderChips(){
+  const c=document.getElementById("sevChips"); c.innerHTML=""; let any=false;
+  for(const sev of SEV_ORDER){ const n=DATA.severity_counts[sev]; if(!n) continue; any=true;
+    const el=document.createElement("span"); el.className="chip";
+    el.innerHTML=`<span class="dot" style="background:${SEV_COLOR[sev]}"></span><span class="n">${n}</span> ${sev.toLowerCase()}`;
+    c.appendChild(el); }
+  if(!any) c.innerHTML=`<span class="chip"><span class="dot" style="background:var(--good)"></span>No findings — clean scan</span>`;
+}
+function renderSevBar(){
+  const bar=document.getElementById("sevbar"); if(!bar) return; bar.innerHTML="";
+  const total=SEV_ORDER.reduce((a,s)=>a+(DATA.severity_counts[s]||0),0);
+  if(!total){ bar.innerHTML=`<span style="flex:1;background:var(--good)"></span>`; return; }
+  for(const sev of SEV_ORDER){ const n=DATA.severity_counts[sev]||0; if(!n) continue;
+    const s=document.createElement("span"); s.style.flex=String(n); s.style.background=SEV_COLOR[sev];
+    s.title=`${n} ${sev.toLowerCase()}`; bar.appendChild(s); }
+}
+const OWASP_IDS = ["LLM01","LLM02","LLM03","LLM04","LLM05","LLM06","LLM07","LLM08","LLM09","LLM10"];
+function renderOwasp(){
+  const w=document.getElementById("owaspstrip"); if(!w) return; w.innerHTML="";
+  const worst={}, cnt={};   // per-category worst severity index + count
+  for(const f of DATA.findings){ const id=f.owasp; if(!id) continue;
+    cnt[id]=(cnt[id]||0)+1; const si=SEV_ORDER.indexOf(f.severity);
+    if(!(id in worst) || si<worst[id]) worst[id]=si; }
+  for(const id of OWASP_IDS){ const el=document.createElement("span");
+    el.className="ocat"+(cnt[id]?" hit":""); el.title=DATA.owasp_names&&DATA.owasp_names[id]?DATA.owasp_names[id]:id;
+    if(cnt[id]){ const sev=SEV_ORDER[worst[id]]; el.style.background=SEV_COLOR[sev];
+      el.innerHTML=`${id}<span class="oc-n">${cnt[id]}</span>`; }
+    else el.textContent=id;
+    w.appendChild(el); }
+}
+function renderBusiness(p){
+  const w=document.getElementById("business"); w.innerHTML="";
+  if(!p.show_business) return; const br=DATA.business_risk; const d0=br.risk_drivers[0]||{};
+  w.innerHTML=`<h2 class="section">Business Risk</h2><div class="cards">
+    <div class="card"><div class="lab">Annualized loss exposure</div>
+      <div class="big">${money(br.ale_low_usd)} – ${money(br.ale_high_usd)}</div>
+      <div class="note">${esc(br.basis)}</div></div>
+    <div class="card"><div class="lab">Top risk driver</div>
+      <div class="big" style="font-size:15px;line-height:1.35">${esc(d0.consequence||"—")}</div>
+      <div class="note">${esc(d0.owasp||"")} · ${d0.max_severity||""}</div></div></div>`;
+}
+function renderCompliance(p){
+  const w=document.getElementById("compliance"); w.innerHTML="";
+  if(!p.show_compliance) return; const c=DATA.compliance; const keys=Object.keys(c); if(!keys.length) return;
+  let h=`<h2 class="section">Regulatory Exposure</h2><div class="frameworks">`;
+  for(const fw of keys){ const pills=c[fw].map(r=>`<span class="pill" title="${esc(r.description)}">${esc(r.control)}</span>`).join("");
+    h+=`<div class="fw"><div class="name">${esc(fw.replace(/_/g," "))}</div><div class="ctrls">${pills}</div></div>`; }
+  w.innerHTML=h+"</div>";
+}
+const CONF = c => c>=0.75 ? {t:"high",c:"var(--good)"} : c>=0.5 ? {t:"medium",c:"var(--med)"} : {t:"low",c:"var(--muted)"};
+const ROLE_LABEL = { source:"source", propagates:"flows through", tool:"model-invokable tool", sink:"dangerous sink" };
+function traceBlock(f){
+  if(!(f.trace||[]).length) return "";
+  const rows = f.trace.map(s=>`<div class="trow"><span class="trole trole-${s.role}">${ROLE_LABEL[s.role]||s.role}</span>`+
+    `<span class="tline mono">:${s.line}</span><code class="tsnip">${esc(s.snippet||"")}</code></div>`).join("");
+  return `<details class="flow" open><summary>Data flow — how tainted data reaches the sink</summary>${rows}</details>`;
+}
+function findingCard(f, p){
+  const checked = selected.has(f.rule_id) ? "checked" : "";
+  const mode = f.auto ? `<span class="mode auto">AUTO-FIXABLE</span>` : `<span class="mode manual">MANUAL</span>`;
+  const cf = CONF(f.confidence==null?0.8:f.confidence);
+  let h=`<div class="finding${selected.has(f.rule_id)?" sel":""}" style="border-left-color:${SEV_COLOR[f.severity]}">
+    <div class="fh">
+      <input class="selbox" type="checkbox" data-rule="${esc(f.rule_id)}" ${checked} aria-label="Select for remediation">
+      <span class="sev" style="background:${SEV_COLOR[f.severity]}">${f.severity}</span>
+      <span class="grow"><span class="title">${esc(f.title)}</span></span>
+      <span class="conf" title="Detector confidence"><span class="cdot" style="background:${cf.c}"></span>${cf.t}</span>
+      <span class="loc mono">${esc(f.location)}</span>
+    </div>
+    <div class="meta">OWASP ${esc(f.owasp)} (${esc(f.owasp_name)})${f.atlas.length?" · ATLAS "+esc(f.atlas.join(", ")):""}</div>`;
+  if(p.show_evidence) h+=traceBlock(f);
+  if(p.show_evidence && f.evidence) h+=`<div class="kv"><b>evidence</b><code class="ev">${esc(f.evidence)}</code></div>`;
+  if(p.show_business && f.business) h+=`<div class="kv"><b>business:</b> ${esc(f.business)}</div>`;
+  if(p.show_remediation) h+=`<div class="kv"><b>fix:</b> ${esc(f.remediation)}</div>`;
+  h+=`<div class="agentbar"><span class="agent"><span class="gear">⚙</span>${esc(f.agent)}</span>${mode}</div>`;
+  if((f.plan||[]).length) h+=`<details class="plan"><summary>Remediation plan</summary><ol>${
+    f.plan.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></details>`;
+  h+=`<div class="rid mono">${esc(f.rule_id)}</div></div>`;
+  return h;
+}
+function renderFindings(p){
+  const head=document.getElementById("findings-head"), box=document.getElementById("findings"); box.innerHTML="";
+  if(!p.show_findings){
+    head.textContent="Risk Drivers";
+    const d=DATA.business_risk.risk_drivers;
+    box.innerHTML=d.map(x=>`<div class="finding" style="border-left-color:${SEV_COLOR[x.max_severity]}">
+      <div class="fh"><span class="sev" style="background:${SEV_COLOR[x.max_severity]}">${x.max_severity}</span>
+      <span class="title">${esc(x.consequence)}</span></div>
+      <div class="meta">${esc(x.owasp)} · ${x.count} finding(s)</div></div>`).join("")
+      || `<div class="empty">No findings at or above this profile's threshold.</div>`;
+    return;
+  }
+  head.textContent="Findings & Remediation";
+  const shown=DATA.findings.filter(f=>f.sev_value>=p.severity_floor);
+  if(!shown.length){ box.innerHTML=`<div class="empty">No findings at or above this profile's threshold.</div>`; return; }
+  box.innerHTML=shown.map(f=>findingCard(f,p)).join("");
+  const hidden=DATA.findings.length-shown.length;
+  if(hidden){ const n=document.createElement("div"); n.className="empty";
+    n.textContent=`${hidden} finding(s) below this profile's ${FLOOR_NAME[p.severity_floor]} floor — switch to AI/ML Engineer to see all.`;
+    box.appendChild(n); }
+  box.querySelectorAll(".selbox").forEach(cb=>cb.addEventListener("change",e=>{
+    const id=e.target.dataset.rule; if(e.target.checked) selected.add(id); else selected.delete(id);
+    e.target.closest(".finding").classList.toggle("sel", e.target.checked); updateBar();
+  }));
+}
+function updateBar(){
+  const bar=document.getElementById("actionbar");
+  if(!selected.size){ bar.classList.remove("show"); return; }
+  bar.classList.add("show");
+  document.getElementById("selcount").textContent=selected.size+" selected";
+  const rules=[...selected].join(",");
+  const auto=document.getElementById("autochk").checked?" --auto":"";
+  document.getElementById("cmd").textContent=`orthosec remediate . --rule ${rules}${auto}`;
+}
+function render(){
+  const p=DATA.profiles[current];
+  document.querySelectorAll(".tab").forEach((b,i)=>b.setAttribute("aria-selected", Object.keys(DATA.profiles)[i]===current));
+  document.getElementById("audience").textContent="View for "+p.audience+".";
+  renderRing(); renderChips(); renderSevBar(); renderOwasp(); renderBusiness(p); renderCompliance(p); renderFindings(p);
+  const ew=document.getElementById("execWrap");
+  if(DATA.exec_summary){ ew.style.display=""; document.getElementById("exec").innerHTML=mdToHtml(DATA.exec_summary); }
+  else ew.style.display="none";
+  document.getElementById("posture-note").textContent=
+    DATA.findings.length+" finding(s) · "+Object.keys(DATA.compliance).length+" regulatory framework(s) implicated";
+  updateBar();
+}
+document.getElementById("genstamp").textContent="Generated "+DATA.generated;
+document.getElementById("fcount").textContent=DATA.findings.length+" findings across all profiles";
+document.getElementById("autochk").addEventListener("change",updateBar);
+document.getElementById("clearbtn").addEventListener("click",()=>{ selected.clear(); render(); });
+document.getElementById("copybtn").addEventListener("click",()=>{
+  const txt=document.getElementById("cmd").textContent;
+  navigator.clipboard && navigator.clipboard.writeText(txt);
+  const b=document.getElementById("copybtn"); b.textContent="Copied ✓"; setTimeout(()=>b.textContent="Copy command",1400);
+});
+// Build a standalone, self-contained copy of this report (works even inside a
+// sandboxed iframe where window.print() is blocked). Strips any injected CSP so the
+// saved file's inline CSS/JS run when opened locally.
+function _standaloneHtml(){
+  _openAllForPrint();                                   // bake details open into the markup
+  let html = document.documentElement.outerHTML;
+  _restoreAfterPrint();
+  html = html.replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, "");
+  return "<!doctype html>\n" + html;
+}
+function downloadReport(){
+  const blob = new Blob([_standaloneHtml()], {type: "text/html"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "orthosec-report.html";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+function printReport(){
+  const sandboxed = window.self !== window.top;   // inside an artifact iframe?
+  if (!sandboxed) { window.print(); return; }      // local file: print dialog works
+  // Sandboxed iframe blocks the print dialog — open a standalone tab and print there.
+  let w = null;
+  try { w = window.open("", "_blank"); } catch(e) {}
+  if (w) {
+    w.document.write(_standaloneHtml()); w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  } else {
+    downloadReport();                              // popups blocked: save a printable file
+  }
+}
+
+// Expand every <details> for printing (data-flow traces + remediation plans), restore after.
+let _printOpened = [];
+function _openAllForPrint(){
+  _printOpened = [];
+  document.querySelectorAll("details:not([open])").forEach(d=>{ _printOpened.push(d); d.open=true; });
+}
+function _restoreAfterPrint(){ _printOpened.forEach(d=>d.open=false); _printOpened=[]; }
+window.addEventListener("beforeprint", _openAllForPrint);
+window.addEventListener("afterprint", _restoreAfterPrint);
+if(window.matchMedia){ const mq=window.matchMedia("print");
+  mq.addEventListener && mq.addEventListener("change", e=>{ e.matches ? _openAllForPrint() : _restoreAfterPrint(); }); }
+
+renderTabs(); render();
+</script>
+</body>
+</html>

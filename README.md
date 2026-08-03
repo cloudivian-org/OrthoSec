@@ -153,7 +153,7 @@ python -m orthosec.cli scan ./my-ai-app --html report.html
 
 **Every `orthosec scan` writes this report automatically** to `orthosec-report.html` (override with `--html PATH`, disable with `--no-report`). A self-contained, theme-aware HTML report (no external requests) with a **built-in profile toggle** — the same file switches between the engineer / appsec / ciso / product views live. The executive briefing renders as formatted HTML (headings, tables, lists), each finding shows its remediation agent, and selecting findings builds a ready-to-run `orthosec remediate` command. A stacked severity bar and an OWASP LLM Top-10 coverage strip summarize posture at a glance, each dataflow finding shows its **taint path** (`source → sink`) and a **confidence** level, and a Print / Save-as-PDF button exports it. Open it in a browser, attach it to a ticket, or drop it in a board deck.
 
-**[Docs site →](https://cloudivian-org.github.io/OrthoSec/)** · **[▶ Live sample report →](https://cloudivian-org.github.io/OrthoSec/report/)** — the report is regenerated fresh from the bundled vulnerable demo on every push, so it's always a real product output. Or generate it locally: `orthosec scan examples/vulnerable-agent` opens `orthosec-report.html`.
+**[Docs site →](https://cloudivian-org.github.io/OrthoSec/)** · **[▶ Live sample report →](https://cloudivian-org.github.io/OrthoSec/report/)** — a real product output on the bundled vulnerable demo, including the **executive briefing** (business risk + regulatory exposure). Generate your own locally: `orthosec scan ./my-ai-app --profile ciso` opens `orthosec-report.html`.
 
 ## Scheduling — continuous & daily reports
 
